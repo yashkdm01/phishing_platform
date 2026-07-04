@@ -54,7 +54,9 @@ export default function Dashboard() {
       // 2. Grab your active login token
       const token = localStorage.getItem("token");
       const endpoint = activeTab === "url" ? "/scan/url" : "/scan/email";
-      const requestBody = activeTab === "url" ? { url: payload } : { email: payload };
+      
+      // FIX 1: Send "content" instead of "email" to stop the 422 error
+      const requestBody = activeTab === "url" ? { url: payload } : { content: payload };
       
       // 3. Send the request WITH the secure token
       const response = await axios.post(`${process.env.NEXT_PUBLIC_API_URL}${endpoint}`, 
@@ -74,8 +76,22 @@ export default function Dashboard() {
 
     } catch (err: any) {
       console.error("Scan failed", err);
-      // Fixed: Now properly passes an error state the UI can read
-      setReport({ error: err.response?.data?.detail || "Failed to connect to scanner engine." });
+      
+      // FIX 2: Bulletproof error parser to stop React from crashing on arrays
+      let errorMsg = "Failed to connect to scanner engine.";
+      const detail = err.response?.data?.detail;
+      
+      if (typeof detail === "string") {
+        errorMsg = detail;
+      } else if (Array.isArray(detail)) {
+        errorMsg = `Validation Error: Check backend schema. Missing: '${detail[0]?.loc?.[1] || 'input'}'`;
+      } else if (detail) {
+        errorMsg = JSON.stringify(detail);
+      } else if (err.message) {
+        errorMsg = err.message;
+      }
+
+      setReport({ error: errorMsg });
     } finally {
       setLoading(false);
     }
