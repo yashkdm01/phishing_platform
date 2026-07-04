@@ -27,31 +27,55 @@ export default function Dashboard() {
 
   const fetchAnalytics = async () => {
     try {
-      const res = await axios.get(`${process.env.NEXT_PUBLIC_API_URL}/analytics/history`);
-      setStats(res.data.statistics);
-      setHistory(res.data.recent_scans);
-    } catch (error) {
-      console.error("Failed to fetch analytics");
+      const token = localStorage.getItem("token");
+      const res = await axios.get(`${process.env.NEXT_PUBLIC_API_URL}/analytics/history`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      setStats(res.data); 
+      setHistory(res.data.history || []);
+    } catch (err) {
+      console.error("Analytics fetch failed", err);
     }
   };
 
-  const handleScan = async () => {
-    if (!inputData) return;
+  const handleScan = async (e: React.FormEvent) => {
+    e.preventDefault();
     setLoading(true);
     setReport(null);
+  
+    // 1. Auto-format the URL so the strict Python backend accepts it
+    let payload = inputData;
+    if (activeTab === "url" && !/^https?:\/\//i.test(payload)) {
+      payload = 'http://' + payload;
+    }
 
     try {
-      const endpoint = activeTab === "url" 
-        ? `${process.env.NEXT_PUBLIC_API_URL}/scan/url` 
-        : `${process.env.NEXT_PUBLIC_API_URL}/scan/email`;
+      // 2. Grab your active login token
+      const token = localStorage.getItem("token");
+      const endpoint = activeTab === "url" ? "/scan/url" : "/scan/email";
+      const requestBody = activeTab === "url" ? { url: payload } : { email: payload };
       
-      const payload = activeTab === "url" ? { url: inputData } : { content: inputData };
-      const response = await axios.post(endpoint, payload);
+      // 3. Send the request WITH the secure token
+      const response = await axios.post(`${process.env.NEXT_PUBLIC_API_URL}${endpoint}`, 
+        requestBody,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        }
+      );
       
-      setReport(response.data);
-      fetchAnalytics(); // Refresh logs after scanning
-    } catch (error) {
-      setReport({ risk_level: "ERROR", status: "Failed to connect to scanner engine." });
+      // 4. Set your result state here based on backend response
+      setReport(response.data); 
+      
+      // 5. Refresh the dynamic telemetry numbers
+      fetchAnalytics(); 
+
+    } catch (err: any) {
+      console.error("Scan failed", err);
+      // Fixed: Now properly passes an error state the UI can read
+      setReport({ error: err.response?.data?.detail || "Failed to connect to scanner engine." });
     } finally {
       setLoading(false);
     }
@@ -109,12 +133,14 @@ export default function Dashboard() {
 
           {/* Report Area */}
           {report && (
-            <div className={`border rounded-2xl p-6 shadow-2xl ${report.risk_level === 'HIGH' ? 'bg-red-500/10 border-red-500/50' : report.risk_level === 'MEDIUM' ? 'bg-yellow-500/10 border-yellow-500/50' : 'bg-green-500/10 border-green-500/50'}`}>
+            <div className={`border rounded-2xl p-6 shadow-2xl ${report.error ? 'bg-red-900/20 border-red-500/50' : report.risk_level === 'HIGH' ? 'bg-red-500/10 border-red-500/50' : report.risk_level === 'MEDIUM' ? 'bg-yellow-500/10 border-yellow-500/50' : 'bg-green-500/10 border-green-500/50'}`}>
               <div className="flex items-center gap-4 mb-4">
-                {report.risk_level === 'HIGH' ? <ShieldAlert className="text-red-500" size={32} /> : report.risk_level === 'MEDIUM' ? <AlertTriangle className="text-yellow-500" size={32} /> : <CheckCircle className="text-green-500" size={32} />}
+                {report.error || report.risk_level === 'HIGH' ? <ShieldAlert className="text-red-500" size={32} /> : report.risk_level === 'MEDIUM' ? <AlertTriangle className="text-yellow-500" size={32} /> : <CheckCircle className="text-green-500" size={32} />}
                 <div>
-                  <h3 className="text-xl font-bold text-white uppercase">{report.risk_level} RISK DETECTED</h3>
-                  <p className="text-gray-300">{report.status}</p>
+                  <h3 className="text-xl font-bold text-white uppercase">
+                    {report.error ? "SYSTEM ERROR" : `${report.risk_level} RISK DETECTED`}
+                  </h3>
+                  <p className="text-gray-300">{report.error || report.status}</p>
                 </div>
               </div>
             </div>
@@ -135,7 +161,7 @@ export default function Dashboard() {
                 <div className="text-xs text-gray-400">Total Scans</div>
               </div>
               <div className="bg-red-900/20 border border-red-500/20 p-4 rounded-lg text-center">
-                <div className="text-2xl font-bold text-red-500">{stats.high_risk_detected}</div>
+                <div className="text-2xl font-bold text-red-500">{stats.high_risk_detected || stats.threats_blocked || 0}</div>
                 <div className="text-xs text-red-400">Threats Blocked</div>
               </div>
             </div>
