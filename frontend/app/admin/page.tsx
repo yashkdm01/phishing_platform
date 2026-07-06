@@ -25,7 +25,6 @@ export default function AdminPage() {
   const checkTokenSecurity = () => {
     const token = localStorage.getItem("token");
     if (!token) {
-      // No token? Stop loading and show the Admin Login form
       setLoading(false);
       setIsAuthorized(false);
       return;
@@ -42,11 +41,10 @@ export default function AdminPage() {
       
       if (decodedToken.role !== "admin") {
         console.warn("Unauthorized Role Detected");
-        router.push("/dashboard"); // Normal users get kicked to normal dashboard
+        router.push("/dashboard"); 
         return;
       }
 
-      // Token is valid AND role is admin! Open the vault.
       setIsAuthorized(true);
       fetchGlobalTelemetry(token);
     } catch (e) {
@@ -67,7 +65,6 @@ export default function AdminPage() {
         password
       });
 
-      // Save token and immediately run the security check to open the dashboard
       localStorage.setItem("token", res.data.access_token);
       checkTokenSecurity(); 
     } catch (err: any) {
@@ -93,7 +90,7 @@ export default function AdminPage() {
     localStorage.removeItem("token");
     setIsAuthorized(false);
     setGlobalStats(null);
-    router.push("/admin"); // Drops them right back at the admin login door
+    router.push("/admin_login"); // FIX: Drops them right back at the isolated admin login door
   };
 
   if (loading) {
