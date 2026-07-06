@@ -90,7 +90,7 @@ export default function AdminPage() {
     localStorage.removeItem("token");
     setIsAuthorized(false);
     setGlobalStats(null);
-    router.push("/admin_login"); // FIX: Drops them right back at the isolated admin login door
+    router.push("/admin"); // Matches your folder structure
   };
 
   if (loading) {
