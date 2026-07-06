@@ -4,6 +4,7 @@ class UserCreate(BaseModel):
     name: str
     email: str
     password: str
+    admin_secret: str = None
 
 class UserLogin(BaseModel):
     email: str
