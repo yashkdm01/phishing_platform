@@ -41,7 +41,12 @@ export default function AdminPage() {
       
       if (decodedToken.role !== "admin") {
         console.warn("Unauthorized Role Detected");
-        router.push("/dashboard"); 
+        // FIX: Instead of bouncing to the dashboard, we clear the normal token 
+        // and force the page to show the Admin Gateway login screen.
+        localStorage.removeItem("token");
+        setLoading(false);
+        setIsAuthorized(false);
+        setAuthError("Standard session cleared. Please provide Administrator credentials.");
         return;
       }
 
@@ -90,7 +95,6 @@ export default function AdminPage() {
     localStorage.removeItem("token");
     setIsAuthorized(false);
     setGlobalStats(null);
-    router.push("/admin"); // Matches your folder structure
   };
 
   if (loading) {
