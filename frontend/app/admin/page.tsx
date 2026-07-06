@@ -2,22 +2,35 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Shield, Users, AlertOctagon, Server, Activity, ArrowLeft } from "lucide-react";
+import { Shield, Users, AlertOctagon, Server, Activity, LogOut, Lock } from "lucide-react";
 import axios from "axios";
 
-export default function AdminDashboard() {
+export default function AdminPage() {
   const router = useRouter();
-  const [loading, setLoading] = useState(true);
-  const [globalStats, setGlobalStats] = useState<any>(null);
   
+  // View States
+  const [loading, setLoading] = useState(true);
+  const [isAuthorized, setIsAuthorized] = useState(false);
+  const [globalStats, setGlobalStats] = useState<any>(null);
+
+  // Login Form States
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [authError, setAuthError] = useState("");
+
   useEffect(() => {
+    checkTokenSecurity();
+  }, []);
+
+  const checkTokenSecurity = () => {
     const token = localStorage.getItem("token");
     if (!token) {
-      router.push("/");
+      // No token? Stop loading and show the Admin Login form
+      setLoading(false);
+      setIsAuthorized(false);
       return;
     }
 
-    // SECURITY LOCK: Decode the JWT to verify the role
     try {
       const base64Url = token.split('.')[1];
       const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
@@ -27,21 +40,41 @@ export default function AdminDashboard() {
       
       const decodedToken = JSON.parse(jsonPayload);
       
-      // If they aren't an admin, kick them immediately
       if (decodedToken.role !== "admin") {
-        console.warn("Security Breach Attempted: Unauthorized Access");
-        router.push("/dashboard"); 
+        console.warn("Unauthorized Role Detected");
+        router.push("/dashboard"); // Normal users get kicked to normal dashboard
         return;
       }
-    } catch (e) {
-      console.error("Invalid token format");
-      router.push("/");
-      return;
-    }
 
-    // If they survive the security check, fetch the data
-    fetchGlobalTelemetry(token);
-  }, [router]);
+      // Token is valid AND role is admin! Open the vault.
+      setIsAuthorized(true);
+      fetchGlobalTelemetry(token);
+    } catch (e) {
+      localStorage.removeItem("token");
+      setLoading(false);
+      setIsAuthorized(false);
+    }
+  };
+
+  const handleAdminLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError("");
+    setLoading(true);
+
+    try {
+      const res = await axios.post(`${process.env.NEXT_PUBLIC_API_URL}/auth/login`, {
+        email,
+        password
+      });
+
+      // Save token and immediately run the security check to open the dashboard
+      localStorage.setItem("token", res.data.access_token);
+      checkTokenSecurity(); 
+    } catch (err: any) {
+      setAuthError("Access Denied: Invalid admin credentials.");
+      setLoading(false);
+    }
+  };
 
   const fetchGlobalTelemetry = async (token: string) => {
     try {
@@ -56,10 +89,63 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleAdminLogout = () => {
+    localStorage.removeItem("token");
+    setIsAuthorized(false);
+    setGlobalStats(null);
+    router.push("/admin"); // Drops them right back at the admin login door
+  };
+
   if (loading) {
-    return <div className="flex h-screen items-center justify-center text-white bg-[#0a0a0a]">Initializing Security Operations Center...</div>;
+    return <div className="flex h-screen items-center justify-center text-white bg-[#0a0a0a]">Authenticating Secure Connection...</div>;
   }
 
+  // ==========================================
+  // VIEW 1: THE SECURE ADMIN LOGIN SCREEN
+  // ==========================================
+  if (!isAuthorized) {
+    return (
+      <div className="flex h-screen items-center justify-center p-4">
+        <div className="bg-[#121214] border border-blue-500/20 p-8 rounded-2xl shadow-2xl max-w-md w-full">
+          <div className="flex flex-col items-center justify-center gap-3 mb-8">
+            <div className="p-4 bg-blue-500/10 rounded-full">
+              <Lock className="text-blue-500" size={40} />
+            </div>
+            <h1 className="text-2xl font-bold text-white tracking-widest text-center">ADMIN GATEWAY</h1>
+            <p className="text-xs text-gray-500 uppercase tracking-widest">Restricted Access</p>
+          </div>
+          
+          <form onSubmit={handleAdminLogin} className="space-y-4">
+            <input 
+              type="email" 
+              placeholder="Admin Identifier (Email)" 
+              required 
+              value={email}
+              onChange={(e) => setEmail(e.target.value)} 
+              className="w-full bg-black/50 border border-white/10 rounded px-4 py-3 text-white focus:border-blue-500 focus:outline-none transition-colors" 
+            />
+            <input 
+              type="password" 
+              placeholder="Passcode" 
+              required 
+              value={password}
+              onChange={(e) => setPassword(e.target.value)} 
+              className="w-full bg-black/50 border border-white/10 rounded px-4 py-3 text-white focus:border-blue-500 focus:outline-none transition-colors" 
+            />
+            
+            <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded uppercase tracking-widest mt-4 transition-colors">
+              Initialize Session
+            </button>
+          </form>
+          {authError && <p className="mt-6 text-center text-sm font-bold text-red-500 bg-red-500/10 py-2 rounded">{authError}</p>}
+        </div>
+      </div>
+    );
+  }
+
+  // ==========================================
+  // VIEW 2: THE SOC ADMIN DASHBOARD
+  // ==========================================
   return (
     <div className="flex-1 max-w-7xl mx-auto w-full p-6 mt-8">
       <div className="flex justify-between items-end mb-8 border-b border-white/10 pb-4">
@@ -70,8 +156,8 @@ export default function AdminDashboard() {
           </div>
           <p className="text-gray-400">Global threat monitoring and user activity logs.</p>
         </div>
-        <button onClick={() => router.push("/dashboard")} className="flex items-center gap-2 text-sm bg-white/5 hover:bg-white/10 text-white px-4 py-2 rounded-lg transition-colors">
-          <ArrowLeft size={16} /> Return to Dashboard
+        <button onClick={handleAdminLogout} className="flex items-center gap-2 text-sm bg-red-500/10 hover:bg-red-500/20 text-red-400 px-4 py-2 rounded-lg transition-colors border border-red-500/20">
+          <LogOut size={16} /> Terminate Session
         </button>
       </div>
 
