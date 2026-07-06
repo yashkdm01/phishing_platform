@@ -16,6 +16,30 @@ export default function AdminDashboard() {
       router.push("/");
       return;
     }
+
+    // SECURITY LOCK: Decode the JWT to verify the role
+    try {
+      const base64Url = token.split('.')[1];
+      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+      const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+          return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+      }).join(''));
+      
+      const decodedToken = JSON.parse(jsonPayload);
+      
+      // If they aren't an admin, kick them immediately
+      if (decodedToken.role !== "admin") {
+        console.warn("Security Breach Attempted: Unauthorized Access");
+        router.push("/dashboard"); 
+        return;
+      }
+    } catch (e) {
+      console.error("Invalid token format");
+      router.push("/");
+      return;
+    }
+
+    // If they survive the security check, fetch the data
     fetchGlobalTelemetry(token);
   }, [router]);
 
