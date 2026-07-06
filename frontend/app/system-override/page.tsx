@@ -15,8 +15,8 @@ export default function AdminSetup() {
     try {
       const res = await axios.post(`${process.env.NEXT_PUBLIC_API_URL}/auth/register`, formData);
       setMessage("SUCCESS: System Override Accepted. Initializing Admin Gateway...");
-      // FIX: Redirects directly to the new admin_login path
-      setTimeout(() => router.push("/admin_login"), 2000); 
+      // Restored the redirect back to your existing /admin folder
+      setTimeout(() => router.push("/admin"), 2000); 
     } catch (err: any) {
       setMessage(`ERROR: ${err.response?.data?.detail || "Authentication Failed"}`);
     }
