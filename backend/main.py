@@ -2,8 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from config.database import engine
 from models import models
-from routes import auth, scan
-from routes import auth, scan, analytics
+from routes import auth, scan, analytics, admin
 
 
 
@@ -30,6 +29,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(scan.router)
 app.include_router(analytics.router) 
+app.include_router(admin.router)
 
 @app.get("/")
 def health_check():
