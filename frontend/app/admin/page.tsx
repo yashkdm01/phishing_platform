@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Shield, Users, AlertOctagon, Server, Activity, LogOut, Lock } from "lucide-react";
+import { Shield, Users, AlertOctagon, Server, Activity, LogOut, Lock, Trash2 } from "lucide-react";
 import axios from "axios";
 
 export default function AdminPage() {
@@ -12,6 +12,7 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [globalStats, setGlobalStats] = useState<any>(null);
+  const [userList, setUserList] = useState<any[]>([]);
 
   // Login Form States
   const [email, setEmail] = useState("");
@@ -41,8 +42,6 @@ export default function AdminPage() {
       
       if (decodedToken.role !== "admin") {
         console.warn("Unauthorized Role Detected");
-        // FIX: Instead of bouncing to the dashboard, we clear the normal token 
-        // and force the page to show the Admin Gateway login screen.
         localStorage.removeItem("token");
         setLoading(false);
         setIsAuthorized(false);
@@ -78,12 +77,15 @@ export default function AdminPage() {
     }
   };
 
+  // Upgraded to fetch both Stats AND Users
   const fetchGlobalTelemetry = async (token: string) => {
     try {
-      const res = await axios.get(`${process.env.NEXT_PUBLIC_API_URL}/analytics/history`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setGlobalStats(res.data);
+      const [statsRes, usersRes] = await Promise.all([
+        axios.get(`${process.env.NEXT_PUBLIC_API_URL}/analytics/history`, { headers: { Authorization: `Bearer ${token}` } }),
+        axios.get(`${process.env.NEXT_PUBLIC_API_URL}/admin/users`, { headers: { Authorization: `Bearer ${token}` } })
+      ]);
+      setGlobalStats(statsRes.data);
+      setUserList(usersRes.data);
     } catch (err) {
       console.error("Failed to load admin telemetry", err);
     } finally {
@@ -91,10 +93,27 @@ export default function AdminPage() {
     }
   };
 
+  // New Interactive Delete Function
+  const handleDelete = async (type: 'users' | 'history', id: number) => {
+    if (!confirm(`Are you sure you want to permanently delete this ${type === 'users' ? 'user' : 'log'}?`)) return;
+    
+    const token = localStorage.getItem("token");
+    try {
+      await axios.delete(`${process.env.NEXT_PUBLIC_API_URL}/admin/${type}/${id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      // Refresh the UI seamlessly without reloading the whole page
+      fetchGlobalTelemetry(token!);
+    } catch (err: any) {
+      alert(`Deletion Failed: ${err.response?.data?.detail || "Unknown error"}`);
+    }
+  };
+
   const handleAdminLogout = () => {
     localStorage.removeItem("token");
     setIsAuthorized(false);
     setGlobalStats(null);
+    setUserList([]);
   };
 
   if (loading) {
@@ -106,7 +125,7 @@ export default function AdminPage() {
   // ==========================================
   if (!isAuthorized) {
     return (
-      <div className="flex h-screen items-center justify-center p-4">
+      <div className="flex h-screen items-center justify-center p-4 bg-[#0a0a0a]">
         <div className="bg-[#121214] border border-blue-500/20 p-8 rounded-2xl shadow-2xl max-w-md w-full">
           <div className="flex flex-col items-center justify-center gap-3 mb-8">
             <div className="p-4 bg-blue-500/10 rounded-full">
@@ -117,26 +136,9 @@ export default function AdminPage() {
           </div>
           
           <form onSubmit={handleAdminLogin} className="space-y-4">
-            <input 
-              type="email" 
-              placeholder="Admin Identifier (Email)" 
-              required 
-              value={email}
-              onChange={(e) => setEmail(e.target.value)} 
-              className="w-full bg-black/50 border border-white/10 rounded px-4 py-3 text-white focus:border-blue-500 focus:outline-none transition-colors" 
-            />
-            <input 
-              type="password" 
-              placeholder="Passcode" 
-              required 
-              value={password}
-              onChange={(e) => setPassword(e.target.value)} 
-              className="w-full bg-black/50 border border-white/10 rounded px-4 py-3 text-white focus:border-blue-500 focus:outline-none transition-colors" 
-            />
-            
-            <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded uppercase tracking-widest mt-4 transition-colors">
-              Initialize Session
-            </button>
+            <input type="email" placeholder="Admin Identifier (Email)" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded px-4 py-3 text-white focus:border-blue-500 focus:outline-none transition-colors" />
+            <input type="password" placeholder="Passcode" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded px-4 py-3 text-white focus:border-blue-500 focus:outline-none transition-colors" />
+            <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded uppercase tracking-widest mt-4 transition-colors">Initialize Session</button>
           </form>
           {authError && <p className="mt-6 text-center text-sm font-bold text-red-500 bg-red-500/10 py-2 rounded">{authError}</p>}
         </div>
@@ -145,7 +147,7 @@ export default function AdminPage() {
   }
 
   // ==========================================
-  // VIEW 2: THE SOC ADMIN DASHBOARD
+  // VIEW 2: THE SOC ADMIN DASHBOARD (Upgraded)
   // ==========================================
   return (
     <div className="flex-1 max-w-7xl mx-auto w-full p-6 mt-8">
@@ -180,8 +182,8 @@ export default function AdminPage() {
         </div>
         <div className="bg-[#121214] border border-white/10 p-6 rounded-2xl shadow-xl flex items-center justify-between">
           <div>
-            <p className="text-sm text-gray-400 font-medium">Active Agents</p>
-            <p className="text-3xl font-bold text-white mt-1">1</p>
+            <p className="text-sm text-gray-400 font-medium">Registered Users</p>
+            <p className="text-3xl font-bold text-white mt-1">{userList.length}</p>
           </div>
           <Users className="text-green-500 opacity-50" size={32} />
         </div>
@@ -194,38 +196,69 @@ export default function AdminPage() {
         </div>
       </div>
 
-      {/* Global Activity Feed */}
-      <div className="bg-[#121214] border border-white/10 rounded-2xl p-6 shadow-xl">
-        <h2 className="text-lg font-bold text-white mb-6">Recent Global Detections</h2>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="border-b border-white/10 text-sm text-gray-400 uppercase tracking-wider">
-                <th className="pb-3 font-medium">Payload Target</th>
-                <th className="pb-3 font-medium">Risk Assessment</th>
-                <th className="pb-3 font-medium">Engine Output</th>
-              </tr>
-            </thead>
-            <tbody className="text-sm">
-              {globalStats?.history?.length > 0 ? (
-                globalStats.history.map((log: any) => (
-                  <tr key={log.id} className="border-b border-white/5 hover:bg-white/[0.02] transition-colors">
-                    <td className="py-4 text-gray-300 max-w-[200px] truncate pr-4">{log.content}</td>
-                    <td className="py-4">
-                      <span className={`text-xs font-bold px-2 py-1 rounded ${log.risk_level === 'HIGH' ? 'bg-red-500/20 text-red-500' : log.risk_level === 'MEDIUM' ? 'bg-yellow-500/20 text-yellow-500' : 'bg-green-500/20 text-green-500'}`}>
-                        {log.risk_level}
-                      </span>
-                    </td>
-                    <td className="py-4 text-gray-400 text-xs truncate max-w-[400px]">{log.result || 'Engine verified payload signature.'}</td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={3} className="py-8 text-center text-gray-500">No recent system activity.</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {/* User Management Section */}
+        <div className="bg-[#121214] border border-white/10 rounded-2xl p-6 shadow-xl h-fit">
+          <h2 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
+            <Users size={20} className="text-blue-500"/> User Management
+          </h2>
+          <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+            {userList.length > 0 ? (
+              userList.map((user: any) => (
+                <div key={user.id} className="bg-black/40 border border-white/5 p-4 rounded-lg flex justify-between items-center group">
+                  <div>
+                    <div className="text-sm font-bold text-white flex items-center gap-2">
+                      {user.name} 
+                      {user.role === 'admin' && <span className="bg-blue-500/20 text-blue-400 text-[10px] px-2 py-0.5 rounded uppercase tracking-wider">Admin</span>}
+                    </div>
+                    <div className="text-xs text-gray-500">{user.email}</div>
+                  </div>
+                  <button 
+                    onClick={() => handleDelete('users', user.id)}
+                    className="text-gray-600 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100 p-2"
+                    title="Delete User"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                </div>
+              ))
+            ) : (
+              <p className="text-sm text-gray-500 text-center py-4">No users found.</p>
+            )}
+          </div>
+        </div>
+
+        {/* Global Activity Feed */}
+        <div className="bg-[#121214] border border-white/10 rounded-2xl p-6 shadow-xl h-fit">
+          <h2 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
+            <AlertOctagon size={20} className="text-red-500"/> Global Threat Logs
+          </h2>
+          <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+            {globalStats?.history?.length > 0 ? (
+              globalStats.history.map((log: any) => (
+                <div key={log.id} className="bg-black/40 border border-white/5 p-4 rounded-lg flex justify-between items-center group">
+                  <div className="flex-1 min-w-0 pr-4">
+                    <div className="text-sm text-gray-300 truncate mb-1">{log.content}</div>
+                    <div className="text-xs text-gray-500 truncate">{log.result || 'Engine verified.'}</div>
+                  </div>
+                  <div className="flex items-center gap-4 shrink-0">
+                    <span className={`text-xs font-bold px-2 py-1 rounded ${log.risk_level === 'HIGH' ? 'bg-red-500/20 text-red-500' : log.risk_level === 'MEDIUM' ? 'bg-yellow-500/20 text-yellow-500' : 'bg-green-500/20 text-green-500'}`}>
+                      {log.risk_level}
+                    </span>
+                    <button 
+                      onClick={() => handleDelete('history', log.id)}
+                      className="text-gray-600 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                      title="Clear Log"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p className="text-sm text-gray-500 text-center py-4">No recent system activity.</p>
+            )}
+          </div>
         </div>
       </div>
     </div>
