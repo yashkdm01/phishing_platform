@@ -77,7 +77,6 @@ export default function AdminPage() {
     }
   };
 
-  // Upgraded to fetch both Stats AND Users
   const fetchGlobalTelemetry = async (token: string) => {
     try {
       const [statsRes, usersRes] = await Promise.all([
@@ -93,19 +92,28 @@ export default function AdminPage() {
     }
   };
 
-  // New Interactive Delete Function
+  // PROFESSIONAL OPTIMISTIC UI DELETE
   const handleDelete = async (type: 'users' | 'history', id: number) => {
-    if (!confirm(`Are you sure you want to permanently delete this ${type === 'users' ? 'user' : 'log'}?`)) return;
-    
+    // 1. Instantly update the UI so there is zero lag for the user
+    if (type === 'users') {
+      setUserList(prev => prev.filter(user => user.id !== id));
+    } else {
+      setGlobalStats((prev: any) => ({
+        ...prev,
+        history: prev.history.filter((log: any) => log.id !== id)
+      }));
+    }
+
+    // 2. Perform the actual deletion in the background silently
     const token = localStorage.getItem("token");
     try {
       await axios.delete(`${process.env.NEXT_PUBLIC_API_URL}/admin/${type}/${id}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      // Refresh the UI seamlessly without reloading the whole page
-      fetchGlobalTelemetry(token!);
     } catch (err: any) {
-      alert(`Deletion Failed: ${err.response?.data?.detail || "Unknown error"}`);
+      // 3. If the server fails, alert the admin and restore the UI
+      alert(`Deletion Failed: ${err.response?.data?.detail || "Database lock error"}`);
+      fetchGlobalTelemetry(token!); 
     }
   };
 
@@ -147,7 +155,7 @@ export default function AdminPage() {
   }
 
   // ==========================================
-  // VIEW 2: THE SOC ADMIN DASHBOARD (Upgraded)
+  // VIEW 2: THE SOC ADMIN DASHBOARD 
   // ==========================================
   return (
     <div className="flex-1 max-w-7xl mx-auto w-full p-6 mt-8">
@@ -213,13 +221,15 @@ export default function AdminPage() {
                     </div>
                     <div className="text-xs text-gray-500">{user.email}</div>
                   </div>
-                  <button 
-                    onClick={() => handleDelete('users', user.id)}
-                    className="text-gray-600 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100 p-2"
-                    title="Delete User"
-                  >
-                    <Trash2 size={18} />
-                  </button>
+                  {user.role !== 'admin' && (
+                    <button 
+                      onClick={() => handleDelete('users', user.id)}
+                      className="text-gray-600 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100 p-2"
+                      title="Delete User"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  )}
                 </div>
               ))
             ) : (
