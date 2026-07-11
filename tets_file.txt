@@ -1,0 +1,50 @@
+🔴 Real-World Malicious URLs (Active Phishing) - 
+
+https://www.google.com/search?q=spbu7790i.site+-%F0%9F%8E%B0&hl=id&gl=ID
+
+https://www.bitradex.ai/sdyyxxxexdi/bqeh/index.html?s0=138848
+
+[https://bamorf.com](https://bamorf.com)
+
+[http://thestevekaplan.com/wp-includes/inc.php?r=bD](http://thestevekaplan.com/wp-includes/inc.php?r=bD)
+
+[http://allegro.pl-4478382.sbs](http://allegro.pl-4478382.sbs)
+
+[https://final-statement-landing.lovable.app/](https://final-statement-landing.lovable.app/)
+
+[http://edh.eastdeltaeg.com/wp-includes/framework.p](http://edh.eastdeltaeg.com/wp-includes/framework.p)
+
+
+🟢 Real-World Safe URLs (Benign) -
+
+[https://www.microsoft.com/en-us/security](https://www.microsoft.com/en-us/security)
+
+[https://aws.amazon.com/console/](https://aws.amazon.com/console/)
+
+[https://www.cisco.com/c/en/us/products/security/index.html](https://www.cisco.com/c/en/us/products/security/index.html)
+
+[https://www.cloudflare.com/](https://www.cloudflare.com/)
+
+[https://stripe.com/docs/api](https://stripe.com/docs/api)
+
+
+------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------------
+
+🔴 Real-World Phishing Emails (High Risk) -
+
+Office365 Credential Harvesting: (Office365 is currently one of the top targeted brands globally).
+- "ACTION REQUIRED: Your Office365 subscription has expired. 13 incoming emails are pending delivery. Please log in to your Microsoft portal immediately to verify your payment details and restore email access. If action is not taken within 24 hours, your account will be permanently deactivated."
+
+
+Meta/Facebook Copyright Threat: (Meta is the most heavily targeted brand by phishing campaigns).
+- Dear Page Admin, your Meta Business page has been flagged for copyright infringement. Your page will be unpublished in 12 hours. If you believe this is an error, please submit an appeal at the secure link below. Failure to verify your admin credentials will result in permanent account deletion."
+
+
+🟢 Real-World Safe Emails (Low Risk) - 
+
+Meeting follow-up:
+- "Hi Sarah, thanks for taking the time to meet with us today. I have attached the meeting notes and the revised project timeline for your review. Let me know if you have any feedback before we present it to the client on Thursday."
+
+System update notification:
+- "Hello Team, scheduled maintenance for the primary database server will occur this Saturday at 2:00 AM EST. Expected downtime is approximately 45 minutes. No action is required on your part, but please save all work before logging off on Friday."
