@@ -32,7 +32,6 @@ def create_access_token(data: dict):
 # ==========================================
 @router.post("/register", response_model=schemas.Token)
 def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
-    # THE FIX: Check if email already exists in the database
     existing_user = db.query(models.User).filter(models.User.email == user.email).first()
     if existing_user:
         raise HTTPException(
@@ -44,7 +43,7 @@ def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
     new_user = models.User(
         name=user.name, 
         email=user.email, 
-        hashed_password=hashed_password,
+        password=hashed_password,  # FIXED: Changed to 'password'
         role="user"
     )
     db.add(new_user)
@@ -60,7 +59,6 @@ def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
 # ==========================================
 @router.post("/system-override", response_model=schemas.Token)
 def register_admin(request: schemas.AdminCreate, db: Session = Depends(get_db)):
-    # 1. Verify Master Secret
     admin_secret = os.getenv("ADMIN_SETUP_SECRET")
     if not admin_secret or request.admin_secret != admin_secret:
         raise HTTPException(
@@ -68,7 +66,6 @@ def register_admin(request: schemas.AdminCreate, db: Session = Depends(get_db)):
             detail="Security Clearance Denied: Invalid Master Secret."
         )
 
-    # 2. THE FIX: Check if email already exists
     existing_user = db.query(models.User).filter(models.User.email == request.user.email).first()
     if existing_user:
         raise HTTPException(
@@ -76,12 +73,11 @@ def register_admin(request: schemas.AdminCreate, db: Session = Depends(get_db)):
             detail="Registration Failed: An administrator with this email already exists."
         )
 
-    # 3. Create Admin Account
     hashed_password = get_password_hash(request.user.password)
     new_admin = models.User(
         name=request.user.name, 
         email=request.user.email, 
-        hashed_password=hashed_password,
+        password=hashed_password,  
         role="admin"
     )
     db.add(new_admin)
@@ -99,7 +95,7 @@ def register_admin(request: schemas.AdminCreate, db: Session = Depends(get_db)):
 def login(user_credentials: schemas.UserLogin, db: Session = Depends(get_db)):
     user = db.query(models.User).filter(models.User.email == user_credentials.email).first()
     
-    if not user or not verify_password(user_credentials.password, user.hashed_password):
+    if not user or not verify_password(user_credentials.password, user.password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
