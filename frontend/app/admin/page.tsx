@@ -85,8 +85,9 @@ export default function AdminPage() {
 
   const fetchGlobalTelemetry = async (token: string) => {
     try {
+      // FIX: Now querying the dedicated /admin/telemetry route to bypass user filters
       const [statsRes, usersRes] = await Promise.all([
-        axios.get(`${process.env.NEXT_PUBLIC_API_URL}/analytics/history`, { headers: { Authorization: `Bearer ${token}` } }),
+        axios.get(`${process.env.NEXT_PUBLIC_API_URL}/admin/telemetry`, { headers: { Authorization: `Bearer ${token}` } }),
         axios.get(`${process.env.NEXT_PUBLIC_API_URL}/admin/users`, { headers: { Authorization: `Bearer ${token}` } })
       ]);
 
@@ -95,10 +96,9 @@ export default function AdminPage() {
       setThreatLogs(history);
       setUserList(usersRes.data);
       
-      // Hydrate top level global metrics
       setCounters({
-        totalScans: statsRes.data.total_scans || history.length,
-        threatsBlocked: statsRes.data.high_risk_detected || statsRes.data.threats_blocked || 0,
+        totalScans: statsRes.data.total_scans,
+        threatsBlocked: statsRes.data.threats_blocked,
         totalUsers: usersRes.data.length
       });
     } catch (err) {
@@ -108,9 +108,6 @@ export default function AdminPage() {
     }
   };
 
-  // =========================================================
-  // PRODUCTION GRADE ACTION ENGINE (DELETE USERS & THREATS)
-  // =========================================================
   const handleDelete = async (type: 'users' | 'history', id: number) => {
     const confirmationText = type === 'users' 
       ? "Are you sure you want to permanently delete this user account and all their data?" 
@@ -118,7 +115,6 @@ export default function AdminPage() {
       
     if (!confirm(confirmationText)) return;
     
-    // 1. Target and isolate the item to figure out its properties before deletion
     let wasThreat = false;
     
     if (type === 'history') {
@@ -126,21 +122,17 @@ export default function AdminPage() {
       if (targetLog?.risk_level === 'HIGH' || targetLog?.risk_level === 'MEDIUM') {
         wasThreat = true;
       }
-      // Instantly wipe row from UI state
       setThreatLogs(prev => prev.filter(log => log.id !== id));
     } else {
-      // Instantly wipe user from UI state
       setUserList(prev => prev.filter(user => user.id !== id));
     }
 
-    // 2. Adjust global counters live on screen with Optimistic UI logic
     setCounters(prev => ({
       totalScans: type === 'history' ? prev.totalScans - 1 : prev.totalScans,
       threatsBlocked: wasThreat ? prev.threatsBlocked - 1 : prev.threatsBlocked,
       totalUsers: type === 'users' ? prev.totalUsers - 1 : prev.totalUsers
     }));
 
-    // 3. Make the silent API call to sync the changes down to the database
     const token = localStorage.getItem("token");
     try {
       await axios.delete(`${process.env.NEXT_PUBLIC_API_URL}/admin/${type}/${id}`, {
@@ -148,7 +140,6 @@ export default function AdminPage() {
       });
     } catch (err: any) {
       alert(`Action Failed: ${err.response?.data?.detail || "Database connection error"}`);
-      // Re-hydrate state if backend fails to fall back safely
       fetchGlobalTelemetry(token!);
     }
   };
@@ -202,7 +193,6 @@ export default function AdminPage() {
         </button>
       </div>
 
-      {/* Global Telemetry Dashboard Blocks */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
         <div className="bg-[#121214] border border-white/10 p-6 rounded-2xl shadow-xl flex items-center justify-between">
           <div>
@@ -235,7 +225,6 @@ export default function AdminPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* User Accounts Administration Panel */}
         <div className="bg-[#121214] border border-white/10 rounded-2xl p-6 shadow-xl h-fit">
           <h2 className="text-lg font-bold mb-6 flex items-center gap-2">
             <Users size={20} className="text-blue-500"/> Account Governance
@@ -268,7 +257,6 @@ export default function AdminPage() {
           </div>
         </div>
 
-        {/* Global Threat Log Administration Panel */}
         <div className="bg-[#121214] border border-white/10 rounded-2xl p-6 shadow-xl h-fit">
           <h2 className="text-lg font-bold mb-6 flex items-center gap-2">
             <AlertOctagon size={20} className="text-red-500"/> Malicious Website & Data Feeds
