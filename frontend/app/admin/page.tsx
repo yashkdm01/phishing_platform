@@ -1,5 +1,4 @@
 "use client";
-
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Shield, Users, AlertOctagon, Server, Activity, LogOut, Lock, Trash2 } from "lucide-react";
@@ -7,60 +6,52 @@ import axios from "axios";
 
 export default function AdminPage() {
   const router = useRouter();
-  
+ 
   // View States
   const [loading, setLoading] = useState(true);
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [userList, setUserList] = useState<any[]>([]);
   const [threatLogs, setThreatLogs] = useState<any[]>([]);
-
+  
   // Live Telemetry States
   const [counters, setCounters] = useState({
     totalScans: 0,
     threatsBlocked: 0,
     totalUsers: 0
   });
-
+  
   // Login Form States
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [authError, setAuthError] = useState("");
 
   useEffect(() => {
-    checkTokenSecurity();
+    // Graceful startup: only check if a token exists
+    const token = localStorage.getItem("token");
+    if (token) {
+      validateToken(token);
+    } else {
+      setLoading(false); // Just show the login screen if no token
+    }
   }, []);
 
-  const checkTokenSecurity = () => {
-    const token = localStorage.getItem("token");
-    if (!token) {
-      setLoading(false);
-      setIsAuthorized(false);
-      return;
-    }
-
+  const validateToken = async (token: string) => {
     try {
       const base64Url = token.split('.')[1];
       const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-      const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
-          return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-      }).join(''));
-      
-      const decodedToken = JSON.parse(jsonPayload);
-      
-      if (decodedToken.role !== "admin") {
-        localStorage.removeItem("token");
-        setLoading(false);
-        setIsAuthorized(false);
-        setAuthError("Standard session cleared. Please provide Administrator credentials.");
-        return;
+      const jsonPayload = JSON.parse(atob(base64));
+     
+      if (jsonPayload.role !== "admin") {
+        throw new Error("Not Admin");
       }
-
+      
       setIsAuthorized(true);
       fetchGlobalTelemetry(token);
     } catch (e) {
       localStorage.removeItem("token");
+      setAuthError(""); // Silent fail instead of showing error on first load
+    } finally {
       setLoading(false);
-      setIsAuthorized(false);
     }
   };
 
@@ -68,15 +59,13 @@ export default function AdminPage() {
     e.preventDefault();
     setAuthError("");
     setLoading(true);
-
     try {
       const res = await axios.post(`${process.env.NEXT_PUBLIC_API_URL}/auth/login`, {
         email,
         password
       });
-
       localStorage.setItem("token", res.data.access_token);
-      checkTokenSecurity(); 
+      validateToken(res.data.access_token);
     } catch (err: any) {
       setAuthError("Access Denied: Invalid admin credentials.");
       setLoading(false);
@@ -90,12 +79,12 @@ export default function AdminPage() {
         axios.get(`${process.env.NEXT_PUBLIC_API_URL}/admin/telemetry`, { headers: { Authorization: `Bearer ${token}` } }),
         axios.get(`${process.env.NEXT_PUBLIC_API_URL}/admin/users`, { headers: { Authorization: `Bearer ${token}` } })
       ]);
-
-      const history = statsRes.data.history || [];
       
+      const history = statsRes.data.history || [];
+     
       setThreatLogs(history);
       setUserList(usersRes.data);
-      
+     
       setCounters({
         totalScans: statsRes.data.total_scans,
         threatsBlocked: statsRes.data.threats_blocked,
@@ -109,14 +98,14 @@ export default function AdminPage() {
   };
 
   const handleDelete = async (type: 'users' | 'history', id: number) => {
-    const confirmationText = type === 'users' 
-      ? "Are you sure you want to permanently delete this user account and all their data?" 
+    const confirmationText = type === 'users'
+      ? "Are you sure you want to permanently delete this user account and all their data?"
       : "Are you sure you want to scrub this malicious website from the global records?";
-      
+     
     if (!confirm(confirmationText)) return;
-    
+   
     let wasThreat = false;
-    
+   
     if (type === 'history') {
       const targetLog = threatLogs.find(log => log.id === id);
       if (targetLog?.risk_level === 'HIGH' || targetLog?.risk_level === 'MEDIUM') {
@@ -126,7 +115,7 @@ export default function AdminPage() {
     } else {
       setUserList(prev => prev.filter(user => user.id !== id));
     }
-
+    
     setCounters(prev => ({
       totalScans: type === 'history' ? prev.totalScans - 1 : prev.totalScans,
       threatsBlocked: wasThreat ? prev.threatsBlocked - 1 : prev.threatsBlocked,
@@ -166,11 +155,30 @@ export default function AdminPage() {
             <h1 className="text-2xl font-bold text-white tracking-widest text-center">ADMIN GATEWAY</h1>
             <p className="text-xs text-gray-500 uppercase tracking-widest">Restricted Access</p>
           </div>
-          
+         
           <form onSubmit={handleAdminLogin} className="space-y-4">
-            <input type="email" placeholder="Admin Identifier" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded px-4 py-3 text-white focus:border-blue-500 focus:outline-none transition-colors" />
-            <input type="password" placeholder="Passcode" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded px-4 py-3 text-white focus:border-blue-500 focus:outline-none transition-colors" />
-            <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded uppercase tracking-widest mt-4 transition-colors">Initialize Session</button>
+            <input 
+              type="email" 
+              placeholder="Admin Identifier" 
+              required 
+              value={email} 
+              onChange={(e) => setEmail(e.target.value)} 
+              className="w-full bg-black/50 border border-white/10 rounded px-4 py-3 text-white focus:border-blue-500 focus:outline-none transition-colors" 
+            />
+            <input 
+              type="password" 
+              placeholder="Passcode" 
+              required 
+              value={password} 
+              onChange={(e) => setPassword(e.target.value)} 
+              className="w-full bg-black/50 border border-white/10 rounded px-4 py-3 text-white focus:border-blue-500 focus:outline-none transition-colors" 
+            />
+            <button 
+              type="submit" 
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded uppercase tracking-widest mt-4 transition-colors"
+            >
+              Initialize Session
+            </button>
           </form>
           {authError && <p className="mt-6 text-center text-sm font-bold text-red-500 bg-red-500/10 py-2 rounded">{authError}</p>}
         </div>
@@ -188,7 +196,10 @@ export default function AdminPage() {
           </div>
           <p className="text-gray-400">Global threat monitoring, telemetry, and platform governance.</p>
         </div>
-        <button onClick={handleAdminLogout} className="flex items-center gap-2 text-sm bg-red-500/10 hover:bg-red-500/20 text-red-400 px-4 py-2 rounded-lg transition-colors border border-red-500/20">
+        <button 
+          onClick={handleAdminLogout} 
+          className="flex items-center gap-2 text-sm bg-red-500/10 hover:bg-red-500/20 text-red-400 px-4 py-2 rounded-lg transition-colors border border-red-500/20"
+        >
           <LogOut size={16} /> Terminate Session
         </button>
       </div>
@@ -235,13 +246,13 @@ export default function AdminPage() {
                 <div key={user.id} className="bg-black/40 border border-white/5 p-4 rounded-lg flex justify-between items-center group">
                   <div>
                     <div className="text-sm font-bold flex items-center gap-2">
-                      {user.name} 
+                      {user.name}
                       {user.role === 'admin' && <span className="bg-blue-500/20 text-blue-400 text-[10px] px-2 py-0.5 rounded uppercase tracking-wider">Root Admin</span>}
                     </div>
                     <div className="text-xs text-gray-500">{user.email}</div>
                   </div>
                   {user.role !== 'admin' && (
-                    <button 
+                    <button
                       onClick={() => handleDelete('users', user.id)}
                       className="text-gray-600 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100 p-2"
                       title="Delete Account"
@@ -273,7 +284,7 @@ export default function AdminPage() {
                     <span className={`text-xs font-bold px-2 py-1 rounded ${log.risk_level === 'HIGH' ? 'bg-red-500/20 text-red-500' : log.risk_level === 'MEDIUM' ? 'bg-yellow-500/20 text-yellow-500' : 'bg-green-500/20 text-green-500'}`}>
                       {log.risk_level}
                     </span>
-                    <button 
+                    <button
                       onClick={() => handleDelete('history', log.id)}
                       className="text-gray-600 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
                       title="Purge Threat Log Entry"
