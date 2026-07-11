@@ -85,7 +85,7 @@ export default function DashboardPage() {
         threatsBlocked: isThreat ? prev.threatsBlocked + 1 : prev.threatsBlocked
       }));
 
-      # 2. Add the new scan item to the top of the side logs table dynamically
+      // 2. Add the new scan item to the top of the side logs table dynamically
       const newLogItem = {
         id: Date.now(), 
         content: activeTab === "url" ? data.url : (inputValue.substring(0, 30) + "..."),
