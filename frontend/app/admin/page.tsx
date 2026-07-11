@@ -28,26 +28,39 @@ export default function AdminPage() {
 
   const validateToken = async (token: string) => {
     try {
-      // THE FIX: Restored the ultra-robust decoder to prevent parsing crashes
+      // THE FIX: Indestructible JWT parser with strict Base64 padding
       const base64Url = token.split('.')[1];
       const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-      const jsonPayload = decodeURIComponent(window.atob(base64).split('').map(function(c) {
-          return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-      }).join(''));
+      
+      // Calculate missing padding to prevent 'atob' from crashing
+      const padding = base64.length % 4 === 0 ? '' : '='.repeat(4 - (base64.length % 4));
+      const base64Padded = base64 + padding;
+      
+      const jsonPayload = decodeURIComponent(
+        window.atob(base64Padded)
+          .split('')
+          .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+          .join('')
+      );
       
       const decodedToken = JSON.parse(jsonPayload);
       
+      // Check if the account actually has admin privileges
       if (decodedToken.role !== "admin") {
-        throw new Error("Unauthorized");
+        setAuthError(`Access Denied: Your account role is '${decodedToken.role}'. Please use /system-override to register an admin account.`);
+        localStorage.removeItem("token");
+        setIsAuthorized(false);
+        setLoading(false);
+        return; // Stop execution here
       }
       
-      // If we reach here, it successfully read the token!
       setIsAuthorized(true);
       fetchGlobalTelemetry(token);
-    } catch (e) {
+    } catch (e: any) {
+      console.error("JWT Parsing Error:", e);
       localStorage.removeItem("token");
       setIsAuthorized(false);
-    } finally {
+      setAuthError("Session verification failed. Please try logging in again.");
       setLoading(false);
     }
   };
@@ -59,8 +72,10 @@ export default function AdminPage() {
 
     try {
       const res = await axios.post(`${process.env.NEXT_PUBLIC_API_URL}/auth/login`, { email, password });
-      localStorage.setItem("token", res.data.access_token);
-      await validateToken(res.data.access_token);
+      const token = res.data.access_token;
+      
+      localStorage.setItem("token", token);
+      await validateToken(token);
     } catch (err: any) {
       setAuthError("Access Denied: Invalid admin credentials.");
       setLoading(false);
@@ -82,6 +97,8 @@ export default function AdminPage() {
       });
     } catch (err) {
       console.error("Telemetry fetch error", err);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -100,7 +117,6 @@ export default function AdminPage() {
 
   const handleAdminLogout = () => {
     localStorage.removeItem("token");
-    // THE FIX: Redirects exactly back to the admin page instead of a dead 404 route
     window.location.href = "/admin";
   };
 
@@ -119,7 +135,7 @@ export default function AdminPage() {
             <input type="password" placeholder="Passcode" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded px-4 py-3 text-white focus:outline-none focus:border-blue-500" />
             <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 transition-colors text-white font-bold py-3 rounded">INITIALIZE SESSION</button>
           </form>
-          {authError && <p className="mt-4 text-center text-sm text-red-500">{authError}</p>}
+          {authError && <p className="mt-4 text-center text-sm font-bold text-red-500 bg-red-500/10 py-2 rounded">{authError}</p>}
         </div>
       </div>
     );
