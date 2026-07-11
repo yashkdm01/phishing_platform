@@ -11,8 +11,15 @@ export default function AdminPage() {
   // View States
   const [loading, setLoading] = useState(true);
   const [isAuthorized, setIsAuthorized] = useState(false);
-  const [globalStats, setGlobalStats] = useState<any>(null);
   const [userList, setUserList] = useState<any[]>([]);
+  const [threatLogs, setThreatLogs] = useState<any[]>([]);
+
+  // Live Telemetry States
+  const [counters, setCounters] = useState({
+    totalScans: 0,
+    threatsBlocked: 0,
+    totalUsers: 0
+  });
 
   // Login Form States
   const [email, setEmail] = useState("");
@@ -41,7 +48,6 @@ export default function AdminPage() {
       const decodedToken = JSON.parse(jsonPayload);
       
       if (decodedToken.role !== "admin") {
-        console.warn("Unauthorized Role Detected");
         localStorage.removeItem("token");
         setLoading(false);
         setIsAuthorized(false);
@@ -83,54 +89,81 @@ export default function AdminPage() {
         axios.get(`${process.env.NEXT_PUBLIC_API_URL}/analytics/history`, { headers: { Authorization: `Bearer ${token}` } }),
         axios.get(`${process.env.NEXT_PUBLIC_API_URL}/admin/users`, { headers: { Authorization: `Bearer ${token}` } })
       ]);
-      setGlobalStats(statsRes.data);
+
+      const history = statsRes.data.history || [];
+      
+      setThreatLogs(history);
       setUserList(usersRes.data);
+      
+      // Hydrate top level global metrics
+      setCounters({
+        totalScans: statsRes.data.total_scans || history.length,
+        threatsBlocked: statsRes.data.high_risk_detected || statsRes.data.threats_blocked || 0,
+        totalUsers: usersRes.data.length
+      });
     } catch (err) {
-      console.error("Failed to load admin telemetry", err);
+      console.error("Failed to load global admin telemetry", err);
     } finally {
       setLoading(false);
     }
   };
 
-  // PROFESSIONAL OPTIMISTIC UI DELETE
+  // =========================================================
+  // PRODUCTION GRADE ACTION ENGINE (DELETE USERS & THREATS)
+  // =========================================================
   const handleDelete = async (type: 'users' | 'history', id: number) => {
-    // 1. Instantly update the UI so there is zero lag for the user
-    if (type === 'users') {
-      setUserList(prev => prev.filter(user => user.id !== id));
+    const confirmationText = type === 'users' 
+      ? "Are you sure you want to permanently delete this user account and all their data?" 
+      : "Are you sure you want to scrub this malicious website from the global records?";
+      
+    if (!confirm(confirmationText)) return;
+    
+    // 1. Target and isolate the item to figure out its properties before deletion
+    let wasThreat = false;
+    
+    if (type === 'history') {
+      const targetLog = threatLogs.find(log => log.id === id);
+      if (targetLog?.risk_level === 'HIGH' || targetLog?.risk_level === 'MEDIUM') {
+        wasThreat = true;
+      }
+      // Instantly wipe row from UI state
+      setThreatLogs(prev => prev.filter(log => log.id !== id));
     } else {
-      setGlobalStats((prev: any) => ({
-        ...prev,
-        history: prev.history.filter((log: any) => log.id !== id)
-      }));
+      // Instantly wipe user from UI state
+      setUserList(prev => prev.filter(user => user.id !== id));
     }
 
-    // 2. Perform the actual deletion in the background silently
+    // 2. Adjust global counters live on screen with Optimistic UI logic
+    setCounters(prev => ({
+      totalScans: type === 'history' ? prev.totalScans - 1 : prev.totalScans,
+      threatsBlocked: wasThreat ? prev.threatsBlocked - 1 : prev.threatsBlocked,
+      totalUsers: type === 'users' ? prev.totalUsers - 1 : prev.totalUsers
+    }));
+
+    // 3. Make the silent API call to sync the changes down to the database
     const token = localStorage.getItem("token");
     try {
       await axios.delete(`${process.env.NEXT_PUBLIC_API_URL}/admin/${type}/${id}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
     } catch (err: any) {
-      // 3. If the server fails, alert the admin and restore the UI
-      alert(`Deletion Failed: ${err.response?.data?.detail || "Database lock error"}`);
-      fetchGlobalTelemetry(token!); 
+      alert(`Action Failed: ${err.response?.data?.detail || "Database connection error"}`);
+      // Re-hydrate state if backend fails to fall back safely
+      fetchGlobalTelemetry(token!);
     }
   };
 
   const handleAdminLogout = () => {
     localStorage.removeItem("token");
     setIsAuthorized(false);
-    setGlobalStats(null);
     setUserList([]);
+    setThreatLogs([]);
   };
 
   if (loading) {
-    return <div className="flex h-screen items-center justify-center text-white bg-[#0a0a0a]">Authenticating Secure Connection...</div>;
+    return <div className="flex h-screen items-center justify-center text-white bg-[#0a0a0a]">Securing Terminal Link...</div>;
   }
 
-  // ==========================================
-  // VIEW 1: THE SECURE ADMIN LOGIN SCREEN
-  // ==========================================
   if (!isAuthorized) {
     return (
       <div className="flex h-screen items-center justify-center p-4 bg-[#0a0a0a]">
@@ -144,7 +177,7 @@ export default function AdminPage() {
           </div>
           
           <form onSubmit={handleAdminLogin} className="space-y-4">
-            <input type="email" placeholder="Admin Identifier (Email)" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded px-4 py-3 text-white focus:border-blue-500 focus:outline-none transition-colors" />
+            <input type="email" placeholder="Admin Identifier" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded px-4 py-3 text-white focus:border-blue-500 focus:outline-none transition-colors" />
             <input type="password" placeholder="Passcode" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded px-4 py-3 text-white focus:border-blue-500 focus:outline-none transition-colors" />
             <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded uppercase tracking-widest mt-4 transition-colors">Initialize Session</button>
           </form>
@@ -154,50 +187,47 @@ export default function AdminPage() {
     );
   }
 
-  // ==========================================
-  // VIEW 2: THE SOC ADMIN DASHBOARD 
-  // ==========================================
   return (
-    <div className="flex-1 max-w-7xl mx-auto w-full p-6 mt-8">
+    <div className="flex-1 max-w-7xl mx-auto w-full p-6 mt-8 text-white">
       <div className="flex justify-between items-end mb-8 border-b border-white/10 pb-4">
         <div>
           <div className="flex items-center gap-3 mb-2">
             <Shield className="text-blue-500" size={32} />
-            <h1 className="text-3xl font-bold text-white">Admin Command Center</h1>
+            <h1 className="text-3xl font-bold">Admin Command Center</h1>
           </div>
-          <p className="text-gray-400">Global threat monitoring and user activity logs.</p>
+          <p className="text-gray-400">Global threat monitoring, telemetry, and platform governance.</p>
         </div>
         <button onClick={handleAdminLogout} className="flex items-center gap-2 text-sm bg-red-500/10 hover:bg-red-500/20 text-red-400 px-4 py-2 rounded-lg transition-colors border border-red-500/20">
           <LogOut size={16} /> Terminate Session
         </button>
       </div>
 
-      {/* Top Level Telemetry */}
+      {/* Global Telemetry Dashboard Blocks */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
         <div className="bg-[#121214] border border-white/10 p-6 rounded-2xl shadow-xl flex items-center justify-between">
           <div>
-            <p className="text-sm text-gray-400 font-medium">Total System Scans</p>
-            <p className="text-3xl font-bold text-white mt-1">{globalStats?.total_scans || 0}</p>
+            <p className="text-sm text-gray-400 font-medium">Total Global Scans</p>
+            <p className="text-3xl font-bold mt-1">{counters.totalScans}</p>
           </div>
           <Activity className="text-blue-500 opacity-50" size={32} />
         </div>
         <div className="bg-[#121214] border border-red-500/20 p-6 rounded-2xl shadow-xl flex items-center justify-between">
           <div>
             <p className="text-sm text-red-400 font-medium">Critical Threats Blocked</p>
-            <p className="text-3xl font-bold text-red-500 mt-1">{globalStats?.high_risk_detected || globalStats?.threats_blocked || 0}</p>
+            <p className="text-3xl font-bold text-red-500 mt-1">{counters.threatsBlocked}</p>
           </div>
           <AlertOctagon className="text-red-500 opacity-50" size={32} />
         </div>
         <div className="bg-[#121214] border border-white/10 p-6 rounded-2xl shadow-xl flex items-center justify-between">
           <div>
-            <p className="text-sm text-gray-400 font-medium">Registered Users</p>
-            <p className="text-3xl font-bold text-white mt-1">{userList.length}</p>
+            <p className="text-sm text-gray-400 font-medium">Platform Users</p>
+            <p className="text-3xl font-bold text-white mt-1">{counters.totalUsers}</p>
           </div>
           <Users className="text-green-500 opacity-50" size={32} />
         </div>
         <div className="bg-[#121214] border border-white/10 p-6 rounded-2xl shadow-xl flex items-center justify-between">
           <div>
-            <p className="text-sm text-gray-400 font-medium">API Health</p>
+            <p className="text-sm text-gray-400 font-medium">System Health</p>
             <p className="text-xl font-bold text-green-500 mt-2">100% Uptime</p>
           </div>
           <Server className="text-gray-500 opacity-50" size={32} />
@@ -205,19 +235,19 @@ export default function AdminPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* User Management Section */}
+        {/* User Accounts Administration Panel */}
         <div className="bg-[#121214] border border-white/10 rounded-2xl p-6 shadow-xl h-fit">
-          <h2 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
-            <Users size={20} className="text-blue-500"/> User Management
+          <h2 className="text-lg font-bold mb-6 flex items-center gap-2">
+            <Users size={20} className="text-blue-500"/> Account Governance
           </h2>
           <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
             {userList.length > 0 ? (
               userList.map((user: any) => (
                 <div key={user.id} className="bg-black/40 border border-white/5 p-4 rounded-lg flex justify-between items-center group">
                   <div>
-                    <div className="text-sm font-bold text-white flex items-center gap-2">
+                    <div className="text-sm font-bold flex items-center gap-2">
                       {user.name} 
-                      {user.role === 'admin' && <span className="bg-blue-500/20 text-blue-400 text-[10px] px-2 py-0.5 rounded uppercase tracking-wider">Admin</span>}
+                      {user.role === 'admin' && <span className="bg-blue-500/20 text-blue-400 text-[10px] px-2 py-0.5 rounded uppercase tracking-wider">Root Admin</span>}
                     </div>
                     <div className="text-xs text-gray-500">{user.email}</div>
                   </div>
@@ -225,7 +255,7 @@ export default function AdminPage() {
                     <button 
                       onClick={() => handleDelete('users', user.id)}
                       className="text-gray-600 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100 p-2"
-                      title="Delete User"
+                      title="Delete Account"
                     >
                       <Trash2 size={18} />
                     </button>
@@ -233,23 +263,23 @@ export default function AdminPage() {
                 </div>
               ))
             ) : (
-              <p className="text-sm text-gray-500 text-center py-4">No users found.</p>
+              <p className="text-sm text-gray-500 text-center py-4">No consumer profiles found.</p>
             )}
           </div>
         </div>
 
-        {/* Global Activity Feed */}
+        {/* Global Threat Log Administration Panel */}
         <div className="bg-[#121214] border border-white/10 rounded-2xl p-6 shadow-xl h-fit">
-          <h2 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
-            <AlertOctagon size={20} className="text-red-500"/> Global Threat Logs
+          <h2 className="text-lg font-bold mb-6 flex items-center gap-2">
+            <AlertOctagon size={20} className="text-red-500"/> Malicious Website & Data Feeds
           </h2>
           <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-            {globalStats?.history?.length > 0 ? (
-              globalStats.history.map((log: any) => (
+            {threatLogs.length > 0 ? (
+              threatLogs.map((log: any) => (
                 <div key={log.id} className="bg-black/40 border border-white/5 p-4 rounded-lg flex justify-between items-center group">
                   <div className="flex-1 min-w-0 pr-4">
                     <div className="text-sm text-gray-300 truncate mb-1">{log.content}</div>
-                    <div className="text-xs text-gray-500 truncate">{log.result || 'Engine verified.'}</div>
+                    <div className="text-xs text-gray-500 truncate">{log.result}</div>
                   </div>
                   <div className="flex items-center gap-4 shrink-0">
                     <span className={`text-xs font-bold px-2 py-1 rounded ${log.risk_level === 'HIGH' ? 'bg-red-500/20 text-red-500' : log.risk_level === 'MEDIUM' ? 'bg-yellow-500/20 text-yellow-500' : 'bg-green-500/20 text-green-500'}`}>
@@ -258,7 +288,7 @@ export default function AdminPage() {
                     <button 
                       onClick={() => handleDelete('history', log.id)}
                       className="text-gray-600 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
-                      title="Clear Log"
+                      title="Purge Threat Log Entry"
                     >
                       <Trash2 size={18} />
                     </button>
@@ -266,7 +296,7 @@ export default function AdminPage() {
                 </div>
               ))
             ) : (
-              <p className="text-sm text-gray-500 text-center py-4">No recent system activity.</p>
+              <p className="text-sm text-gray-500 text-center py-4">No active threat entries registered.</p>
             )}
           </div>
         </div>
