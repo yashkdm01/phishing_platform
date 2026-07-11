@@ -28,11 +28,8 @@ export default function AdminPage() {
 
   const validateToken = async (token: string) => {
     try {
-      // THE FIX: Indestructible JWT parser with strict Base64 padding
       const base64Url = token.split('.')[1];
       const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-      
-      // Calculate missing padding to prevent 'atob' from crashing
       const padding = base64.length % 4 === 0 ? '' : '='.repeat(4 - (base64.length % 4));
       const base64Padded = base64 + padding;
       
@@ -45,13 +42,12 @@ export default function AdminPage() {
       
       const decodedToken = JSON.parse(jsonPayload);
       
-      // Check if the account actually has admin privileges
       if (decodedToken.role !== "admin") {
         setAuthError(`Access Denied: Your account role is '${decodedToken.role}'. Please use /system-override to register an admin account.`);
         localStorage.removeItem("token");
         setIsAuthorized(false);
         setLoading(false);
-        return; // Stop execution here
+        return;
       }
       
       setIsAuthorized(true);
@@ -88,11 +84,20 @@ export default function AdminPage() {
         axios.get(`${process.env.NEXT_PUBLIC_API_URL}/admin/telemetry`, { headers: { Authorization: `Bearer ${token}` } }),
         axios.get(`${process.env.NEXT_PUBLIC_API_URL}/admin/users`, { headers: { Authorization: `Bearer ${token}` } })
       ]);
-      setThreatLogs(statsRes.data.history || []);
+      
+      const history = statsRes.data.history || statsRes.data.recent_scans || [];
+      setThreatLogs(history);
       setUserList(usersRes.data || []);
+      
+      // THE FIX: Accept either 'threats_blocked' or 'high_risk_detected' to sync perfectly with backend data shapes
+      const trueTotalScans = statsRes.data.total_scans !== undefined ? statsRes.data.total_scans : history.length;
+      const trueThreatsBlocked = statsRes.data.threats_blocked !== undefined 
+        ? statsRes.data.threats_blocked 
+        : (statsRes.data.high_risk_detected !== undefined ? statsRes.data.high_risk_detected : history.filter((log: any) => log.risk_level === 'HIGH' || log.risk_level === 'MEDIUM').length);
+
       setCounters({
-        totalScans: statsRes.data.total_scans || 0,
-        threatsBlocked: statsRes.data.threats_blocked || 0,
+        totalScans: trueTotalScans,
+        threatsBlocked: trueThreatsBlocked,
         totalUsers: usersRes.data.length || 0
       });
     } catch (err) {
@@ -109,7 +114,8 @@ export default function AdminPage() {
       await axios.delete(`${process.env.NEXT_PUBLIC_API_URL}/admin/${type}/${id}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      fetchGlobalTelemetry(token!);
+      // THE FIX: Immediately poll the live database to recalculate telemetry counts instantly on deletion
+      await fetchGlobalTelemetry(token!);
     } catch (err) {
       alert("Action failed.");
     }
@@ -156,7 +162,7 @@ export default function AdminPage() {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
         <div className="bg-[#121214] border border-white/10 p-6 rounded-2xl flex justify-between items-center">
           <div>
-            <p className="text-sm text-gray-400 font-medium">Total Scans</p>
+            <p className="text-sm text-gray-400 font-medium">Total Global Scans</p>
             <p className="text-3xl font-bold mt-1">{counters.totalScans}</p>
           </div>
           <Activity className="text-blue-500 opacity-50" size={32} />
@@ -213,14 +219,14 @@ export default function AdminPage() {
             {threatLogs.length > 0 ? threatLogs.map((log: any) => (
               <div key={log.id} className="flex justify-between items-center p-4 bg-black/40 border border-white/5 rounded-lg group">
                 <div className="flex-1 min-w-0 pr-4">
-                  <div className="text-sm text-gray-300 truncate mb-1">{log.content}</div>
-                  <div className="text-xs text-gray-500 truncate">{log.result}</div>
+                  <div className="text-sm text-gray-300 truncate mb-1">{log.content || log.url}</div>
+                  <div className="text-xs text-gray-500 truncate">{log.result || log.status || "Logged"}</div>
                 </div>
                 <div className="flex items-center gap-4 shrink-0">
                   <span className={`text-xs font-bold px-2 py-1 rounded ${log.risk_level === 'HIGH' ? 'bg-red-500/20 text-red-500' : log.risk_level === 'MEDIUM' ? 'bg-yellow-500/20 text-yellow-500' : 'bg-green-500/20 text-green-500'}`}>
                     {log.risk_level}
                   </span>
-                  <button onClick={() => handleDelete('history', log.id)} className="text-gray-600 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100" title="Purge Threat Log Entry">
+                  <button onClick={() => handleDelete('history', log.id)} className="text-gray-600 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100 p-2" title="Purge Threat Log Entry">
                     <Trash2 size={18} />
                   </button>
                 </div>
