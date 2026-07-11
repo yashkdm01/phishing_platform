@@ -12,10 +12,23 @@ export default function AdminSetup() {
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
+    setMessage("Processing System Override...");
+    
     try {
-      const res = await axios.post(`${process.env.NEXT_PUBLIC_API_URL}/auth/register`, formData);
+      // THE FIX 1: Structure the payload exactly how FastAPI expects it (AdminCreate schema)
+      const payload = {
+        user: {
+          name: formData.name,
+          email: formData.email,
+          password: formData.password
+        },
+        admin_secret: formData.admin_secret
+      };
+
+      // THE FIX 2: Point to the correct /system-override backend endpoint
+      const res = await axios.post(`${process.env.NEXT_PUBLIC_API_URL}/auth/system-override`, payload);
+      
       setMessage("SUCCESS: System Override Accepted. Initializing Admin Gateway...");
-      // Restored the redirect back to your existing /admin folder
       setTimeout(() => router.push("/admin"), 2000); 
     } catch (err: any) {
       setMessage(`ERROR: ${err.response?.data?.detail || "Authentication Failed"}`);
@@ -31,9 +44,9 @@ export default function AdminSetup() {
         </div>
         
         <form onSubmit={handleRegister} className="space-y-4">
-          <input type="text" placeholder="Admin Name" required onChange={(e) => setFormData({...formData, name: e.target.value})} className="w-full bg-black/50 border border-white/10 rounded px-4 py-2 text-white" />
-          <input type="email" placeholder="Admin Email" required onChange={(e) => setFormData({...formData, email: e.target.value})} className="w-full bg-black/50 border border-white/10 rounded px-4 py-2 text-white" />
-          <input type="password" placeholder="Secure Password" required onChange={(e) => setFormData({...formData, password: e.target.value})} className="w-full bg-black/50 border border-white/10 rounded px-4 py-2 text-white" />
+          <input type="text" placeholder="Admin Name" required onChange={(e) => setFormData({...formData, name: e.target.value})} className="w-full bg-black/50 border border-white/10 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500 transition-colors" />
+          <input type="email" placeholder="Admin Email" required onChange={(e) => setFormData({...formData, email: e.target.value})} className="w-full bg-black/50 border border-white/10 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500 transition-colors" />
+          <input type="password" placeholder="Secure Password" required onChange={(e) => setFormData({...formData, password: e.target.value})} className="w-full bg-black/50 border border-white/10 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500 transition-colors" />
           
           <div className="relative pt-4">
             <Key className="absolute left-3 top-7 text-red-500/50" size={16} />
