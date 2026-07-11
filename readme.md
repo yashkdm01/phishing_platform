@@ -2,6 +2,8 @@
 
 An enterprise-grade, full-stack web application designed to analyze URLs and email payloads for malicious phishing attempts. The platform features real-time threat telemetry, role-based access control (RBAC), and a dedicated Admin Command Center for global platform governance.
 
+live link: phishing-platform-three.vercel.app
+
 ## ✨ Key Features
 
 ### 👤 Standard User (Threat Intelligence)
