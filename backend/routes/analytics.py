@@ -7,19 +7,17 @@ router = APIRouter(prefix="/analytics", tags=["Dashboard & Analytics"])
 
 @router.get("/history")
 def get_scan_history(db: Session = Depends(get_db)):
-    # Fetch all previous scans from the database
-    scans = db.query(models.ScanHistory).order_by(models.ScanHistory.created_at.desc()).limit(10).all()
+    # Fetch all previous scans from the database, sorted by creation date
+    scans = db.query(models.ScanHistory).order_by(models.ScanHistory.id.desc()).limit(10).all()
     
-    # Calculate statistics required by the project document
     total_scans = db.query(models.ScanHistory).count()
     high_risk_count = db.query(models.ScanHistory).filter(models.ScanHistory.risk_level == "HIGH").count()
     safe_count = db.query(models.ScanHistory).filter(models.ScanHistory.risk_level == "LOW").count()
 
+    # Flatten the keys to match your frontend requirements precisely
     return {
-        "statistics": {
-            "total_scans": total_scans,
-            "high_risk_detected": high_risk_count,
-            "safe_detected": safe_count
-        },
-        "recent_scans": scans
+        "total_scans": total_scans,
+        "high_risk_detected": high_risk_count,
+        "safe_detected": safe_count,
+        "history": scans
     }
