@@ -2,96 +2,106 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Link2, Mail, ShieldAlert, CheckCircle, AlertTriangle, Activity } from "lucide-react";
+import { Shield, Globe, Mail, Activity, AlertOctagon, LogOut } from "lucide-react";
 import axios from "axios";
 
-export default function Dashboard() {
+export default function DashboardPage() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState("url");
-  const [inputData, setInputData] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [report, setReport] = useState<any>(null);
   
-  // Analytics State
-  const [stats, setStats] = useState<any>(null);
-  const [history, setHistory] = useState<any[]>([]);
+  // UI Tab State
+  const [activeTab, setActiveTab] = useState<"url" | "email">("url");
+  const [inputValue, setInputValue] = useState("");
+  const [loading, setLoading] = useState(false);
+  
+  // Scan Result State
+  const [scanResult, setScanResult] = useState<any>(null);
+  
+  // LIVE TELEMETRY STATES (No more static values)
+  const [telemetry, setTelemetry] = useState({
+    totalScans: 0,
+    threatsBlocked: 0
+  });
+  const [detectionLogs, setDetectionLogs] = useState<any[]>([]);
 
+  // Authenticate and load initial user history on page mount
   useEffect(() => {
+    fetchUserHistory();
+  }, []);
+
+  const fetchUserHistory = async () => {
     const token = localStorage.getItem("token");
     if (!token) {
-      router.push("/");
-    } else {
-      fetchAnalytics();
+      router.push("/login");
+      return;
     }
-  }, [router]);
 
-  const fetchAnalytics = async () => {
     try {
-      const token = localStorage.getItem("token");
+      // Pull historical analytics from the backend database
       const res = await axios.get(`${process.env.NEXT_PUBLIC_API_URL}/analytics/history`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       
-      setStats(res.data); 
-      setHistory(res.data.history || []);
+      const history = res.data.history || [];
+      const highRiskCount = res.data.high_risk_detected || 0;
+      const totalCount = res.data.total_scans || history.length;
+
+      setTelemetry({
+        totalScans: totalCount,
+        threatsBlocked: highRiskCount
+      });
+      setDetectionLogs(history);
     } catch (err) {
-      console.error("Analytics fetch failed", err);
+      console.error("Failed to fetch operational telemetry", err);
     }
   };
 
-  const handleScan = async (e: React.FormEvent) => {
+  const handleAnalyze = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!inputValue.trim()) return;
+
     setLoading(true);
-    setReport(null);
-  
-    // 1. Auto-format the URL so the strict Python backend accepts it
-    let payload = inputData;
-    if (activeTab === "url" && !/^https?:\/\//i.test(payload)) {
-      payload = 'http://' + payload;
-    }
+    setScanResult(null);
+
+    const token = localStorage.getItem("token");
+    const endpoint = activeTab === "url" ? "/scan/url" : "/scan/email";
+    const payload = activeTab === "url" ? { url: inputValue } : { content: inputValue };
 
     try {
-      // 2. Grab your active login token
-      const token = localStorage.getItem("token");
-      const endpoint = activeTab === "url" ? "/scan/url" : "/scan/email";
+      const res = await axios.post(`${process.env.NEXT_PUBLIC_API_URL}${endpoint}`, payload, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      const data = res.data;
+      setScanResult(data);
+
+      // ==========================================
+      // LIVE TELEMETRY UPDATE ENGINE (THE FIX)
+      // ==========================================
+      const isThreat = data.risk_level === "HIGH" || data.risk_level === "MEDIUM";
       
-      // FIX 1: Send "content" instead of "email" to stop the 422 error
-      const requestBody = activeTab === "url" ? { url: payload } : { content: payload };
+      // 1. Increment counters instantly on screen
+      setTelemetry(prev => ({
+        totalScans: prev.totalScans + 1,
+        threatsBlocked: isThreat ? prev.threatsBlocked + 1 : prev.threatsBlocked
+      }));
+
+      # 2. Add the new scan item to the top of the side logs table dynamically
+      const newLogItem = {
+        id: Date.now(), 
+        content: activeTab === "url" ? data.url : (inputValue.substring(0, 30) + "..."),
+        risk_level: data.risk_level,
+        result: data.status
+      };
+      setDetectionLogs(prev => [newLogItem, ...prev]);
       
-      // 3. Send the request WITH the secure token
-      const response = await axios.post(`${process.env.NEXT_PUBLIC_API_URL}${endpoint}`, 
-        requestBody,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`
-          }
-        }
-      );
-      
-      // 4. Set your result state here based on backend response
-      setReport(response.data); 
-      
-      // 5. Refresh the dynamic telemetry numbers
-      fetchAnalytics(); 
+      // Clear input field after successful scan
+      setInputValue("");
 
     } catch (err: any) {
-      console.error("Scan failed", err);
-      
-      // FIX 2: Bulletproof error parser to stop React from crashing on arrays
-      let errorMsg = "Failed to connect to scanner engine.";
-      const detail = err.response?.data?.detail;
-      
-      if (typeof detail === "string") {
-        errorMsg = detail;
-      } else if (Array.isArray(detail)) {
-        errorMsg = `Validation Error: Check backend schema. Missing: '${detail[0]?.loc?.[1] || 'input'}'`;
-      } else if (detail) {
-        errorMsg = JSON.stringify(detail);
-      } else if (err.message) {
-        errorMsg = err.message;
-      }
-
-      setReport({ error: errorMsg });
+      setScanResult({
+        risk_level: "ERROR",
+        status: err.response?.data?.detail || "Network request failed. Ensure backend is running."
+      });
     } finally {
       setLoading(false);
     }
@@ -99,106 +109,135 @@ export default function Dashboard() {
 
   const handleLogout = () => {
     localStorage.removeItem("token");
-    router.push("/");
+    router.push("/login");
   };
 
   return (
-    <div className="flex-1 max-w-6xl mx-auto w-full p-6 mt-8">
-      
+    <div className="flex-1 max-w-7xl mx-auto w-full p-6 mt-8 text-white">
+      {/* Header Area */}
       <div className="flex justify-between items-end mb-8 border-b border-white/10 pb-4">
         <div>
-          <h1 className="text-3xl font-bold text-white mb-2">Threat Intelligence</h1>
+          <h1 className="text-3xl font-bold mb-2 flex items-center gap-3">
+            <Shield className="text-blue-500" size={32} /> Threat Intelligence
+          </h1>
           <p className="text-gray-400">Analyze payloads and monitor system telemetry.</p>
         </div>
-        <button onClick={handleLogout} className="text-sm text-gray-500 hover:text-red-400 transition-colors">
+        <button onClick={handleLogout} className="text-xs text-gray-500 hover:text-red-400 transition-colors">
           Disconnect Session
         </button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        
-        {/* Left Column: Scanner */}
-        <div className="lg:col-span-2">
-          <div className="bg-[#121214] border border-white/10 rounded-2xl p-6 shadow-xl mb-8">
-            <div className="flex gap-4 mb-6 border-b border-white/5 pb-4">
-              <button onClick={() => {setActiveTab("url"); setReport(null);}} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === "url" ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}>
-                <Link2 size={16} /> URL Scanner
+        {/* Main Operational Panel */}
+        <div className="lg:col-span-2 space-y-6">
+          <div className="bg-[#121214] border border-white/10 p-6 rounded-2xl shadow-xl">
+            {/* Tab Toggles */}
+            <div className="flex gap-4 mb-6">
+              <button 
+                type="button"
+                onClick={() => { setActiveTab("url"); setScanResult(null); }}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${activeTab === "url" ? "bg-blue-600 text-white" : "text-gray-400 hover:bg-white/5"}`}
+              >
+                <Globe size={18} /> URL Scanner
               </button>
-              <button onClick={() => {setActiveTab("email"); setReport(null);}} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === "email" ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}>
-                <Mail size={16} /> Email Analyzer
+              <button 
+                type="button"
+                onClick={() => { setActiveTab("email"); setScanResult(null); }}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${activeTab === "email" ? "bg-blue-600 text-white" : "text-gray-400 hover:bg-white/5"}`}
+              >
+                <Mail size={18} /> Email Analyzer
               </button>
             </div>
 
-            <div className="flex gap-4">
+            {/* Form Input */}
+            <form onSubmit={handleAnalyze} className="flex gap-3">
               <input 
-                type="text" 
-                placeholder={activeTab === "url" ? "Enter suspicious URL..." : "Paste suspicious email content..."}
-                value={inputData}
-                onChange={(e) => setInputData(e.target.value)}
-                className="flex-1 bg-black/50 border border-white/10 rounded-lg py-3 px-4 text-white focus:outline-none focus:border-blue-500"
+                type={activeTab === "url" ? "url" : "text"}
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                placeholder={activeTab === "url" ? "Paste suspicious threat link (https://...)" : "Paste full raw email message contents here..."}
+                required
+                className="flex-1 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 transition-colors"
               />
               <button 
-                onClick={handleScan}
-                disabled={loading || !inputData}
-                className="bg-white text-black font-bold px-8 rounded-lg hover:bg-gray-200 disabled:opacity-50 transition-colors"
+                type="submit" 
+                disabled={loading}
+                className="bg-white text-black hover:bg-gray-200 disabled:bg-gray-700 font-bold px-6 rounded-xl transition-colors text-sm shrink-0"
               >
-                {loading ? "Scanning..." : "Analyze"}
+                {loading ? "Analyzing..." : "Analyze"}
               </button>
-            </div>
+            </form>
           </div>
 
-          {/* Report Area */}
-          {report && (
-            <div className={`border rounded-2xl p-6 shadow-2xl ${report.error ? 'bg-red-900/20 border-red-500/50' : report.risk_level === 'HIGH' ? 'bg-red-500/10 border-red-500/50' : report.risk_level === 'MEDIUM' ? 'bg-yellow-500/10 border-yellow-500/50' : 'bg-green-500/10 border-green-500/50'}`}>
-              <div className="flex items-center gap-4 mb-4">
-                {report.error || report.risk_level === 'HIGH' ? <ShieldAlert className="text-red-500" size={32} /> : report.risk_level === 'MEDIUM' ? <AlertTriangle className="text-yellow-500" size={32} /> : <CheckCircle className="text-green-500" size={32} />}
-                <div>
-                  <h3 className="text-xl font-bold text-white uppercase">
-                    {report.error ? "SYSTEM ERROR" : `${report.risk_level} RISK DETECTED`}
-                  </h3>
-                  <p className="text-gray-300">{report.error || report.status}</p>
-                </div>
+          {/* Dynamic Result Output Screen */}
+          {scanResult && (
+            <div className={`border p-6 rounded-2xl flex gap-4 animate-fadeIn transition-all duration-300 ${
+              scanResult.risk_level === 'HIGH' ? 'bg-red-500/10 border-red-500/30' : 
+              scanResult.risk_level === 'MEDIUM' ? 'bg-yellow-500/10 border-yellow-500/30' :
+              scanResult.risk_level === 'ERROR' ? 'bg-orange-500/10 border-orange-500/30' : 'bg-green-500/10 border-green-500/30'
+            }`}>
+              <div className="mt-1">
+                {scanResult.risk_level === 'HIGH' || scanResult.risk_level === 'ERROR' ? (
+                  <AlertOctagon className={scanResult.risk_level === 'HIGH' ? "text-red-500" : "text-orange-500"} size={28} />
+                ) : (
+                  <Shield className="text-green-500" size={28} />
+                )}
+              </div>
+              <div>
+                <h3 className="text-lg font-bold tracking-wide uppercase">
+                  {scanResult.risk_level === 'HIGH' ? "High Risk Detected" : 
+                   scanResult.risk_level === 'MEDIUM' ? "Medium Risk Detected" :
+                   scanResult.risk_level === 'ERROR' ? "System Error" : "Low Risk Detected"}
+                </h3>
+                <p className="text-sm mt-1 text-gray-300 font-medium">{scanResult.status}</p>
+                {scanResult.details && typeof scanResult.details === 'object' && (
+                  <div className="mt-4 p-3 bg-black/40 rounded-lg text-xs font-mono text-gray-400 max-h-[150px] overflow-y-auto">
+                    {JSON.stringify(scanResult.details, null, 2)}
+                  </div>
+                )}
               </div>
             </div>
           )}
         </div>
 
-        {/* Right Column: Analytics & History */}
-        <div className="bg-[#121214] border border-white/10 rounded-2xl p-6 shadow-xl h-fit">
-          <div className="flex items-center gap-2 mb-6">
-            <Activity className="text-blue-500" size={20} />
-            <h2 className="text-lg font-bold text-white">System Telemetry</h2>
-          </div>
-
-          {stats && (
-            <div className="grid grid-cols-2 gap-4 mb-8">
-              <div className="bg-black/40 border border-white/5 p-4 rounded-lg text-center">
-                <div className="text-2xl font-bold text-white">{stats.total_scans}</div>
-                <div className="text-xs text-gray-400">Total Scans</div>
+        {/* Live Operational Telemetry Side-Panel */}
+        <div className="space-y-6">
+          <div className="bg-[#121214] border border-white/10 p-6 rounded-2xl shadow-xl">
+            <h2 className="text-md font-bold mb-4 flex items-center gap-2 tracking-wider uppercase text-gray-400">
+              <Activity size={16} className="text-blue-500"/> System Telemetry
+            </h2>
+            
+            <div className="grid grid-cols-2 gap-4 mb-6">
+              <div className="bg-black/30 p-4 rounded-xl border border-white/5 text-center">
+                <span className="text-xs text-gray-500 block uppercase">Total Scans</span>
+                <span className="text-2xl font-bold mt-1 block">{telemetry.totalScans}</span>
               </div>
-              <div className="bg-red-900/20 border border-red-500/20 p-4 rounded-lg text-center">
-                <div className="text-2xl font-bold text-red-500">{stats.high_risk_detected || stats.threats_blocked || 0}</div>
-                <div className="text-xs text-red-400">Threats Blocked</div>
+              <div className="bg-red-500/5 p-4 rounded-xl border border-red-500/10 text-center">
+                <span className="text-xs text-red-400/70 block uppercase">Threats Blocked</span>
+                <span className="text-2xl font-bold text-red-500 mt-1 block">{telemetry.threatsBlocked}</span>
               </div>
             </div>
-          )}
 
-          <div>
-            <h3 className="text-sm font-semibold text-gray-400 mb-4 uppercase tracking-wider">Detection Logs</h3>
-            <div className="space-y-3">
-              {history.map((log: any) => (
-                <div key={log.id} className="bg-black/40 border border-white/5 p-3 rounded-lg flex justify-between items-center">
-                  <div className="truncate text-sm text-gray-300 max-w-[150px]">{log.content}</div>
-                  <span className={`text-xs font-bold px-2 py-1 rounded ${log.risk_level === 'HIGH' ? 'bg-red-500/20 text-red-500' : 'bg-green-500/20 text-green-500'}`}>
-                    {log.risk_level}
-                  </span>
-                </div>
-              ))}
-              {history.length === 0 && <p className="text-sm text-gray-500">No logs found.</p>}
+            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">Detection Logs</h3>
+            <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1 custom-scrollbar">
+              {detectionLogs.length > 0 ? (
+                detectionLogs.map((log) => (
+                  <div key={log.id} className="bg-black/20 border border-white/5 p-3 rounded-lg flex justify-between items-center text-xs">
+                    <span className="truncate max-w-[140px] text-gray-400 font-medium">{log.content}</span>
+                    <span className={`px-2 py-0.5 rounded font-bold ${
+                      log.risk_level === 'HIGH' ? 'bg-red-500/20 text-red-500' : 
+                      log.risk_level === 'MEDIUM' ? 'bg-yellow-500/20 text-yellow-500' : 'bg-green-500/20 text-green-500'
+                    }`}>
+                      {log.risk_level}
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <p className="text-xs text-gray-600 py-4 text-center">No structural logs generated.</p>
+              )}
             </div>
           </div>
         </div>
-
       </div>
     </div>
   );
