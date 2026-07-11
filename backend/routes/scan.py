@@ -18,7 +18,8 @@ def scan_suspicious_url(request: schemas.URLScanRequest, db: Session = Depends(g
     # Default variables
     risk_level = "LOW"
     result_status = "Safe. No threats detected."
-    details = "Verified clean."
+    # FIX: Initialize details as a proper dictionary structure to satisfy schemas.py
+    details = {"message": "Verified clean.", "engine": "default"}
     
     # 1. VirusTotal Enterprise Engine
     if vt_api_key:
@@ -48,13 +49,15 @@ def scan_suspicious_url(request: schemas.URLScanRequest, db: Session = Depends(g
                     risk_level = "LOW"
                     result_status = "Verified Clean by VirusTotal global consensus."
                 
-                details = f"Scanned across global vendors. Stats: {stats}"
+                # FIX: Send back the raw `stats` dictionary directly instead of stringifying it
+                details = stats
             else:
                 # If URL isn't found in VT yet, fallback to your local engine
                 fallback = analyze_url(target_url)
                 risk_level = fallback["risk_level"]
                 result_status = fallback["status"]
-                details = fallback.get("details", "Scanned by local engine.")
+                # FIX: Standardize local engine string into a dictionary format
+                details = {"message": fallback.get("details", "Scanned by local engine."), "engine": "local"}
                 
         except Exception as e:
             print(f"VT Engine Error: {e}")
@@ -62,13 +65,15 @@ def scan_suspicious_url(request: schemas.URLScanRequest, db: Session = Depends(g
             fallback = analyze_url(target_url)
             risk_level = fallback["risk_level"]
             result_status = fallback["status"]
-            details = fallback.get("details", "Scanned by local engine.")
+            # FIX: Standardize local engine string into a dictionary format
+            details = {"message": fallback.get("details", "Scanned by local engine."), "engine": "local_fallback"}
     else:
         # Fallback if no API key is set in Render
         fallback = analyze_url(target_url)
         risk_level = fallback["risk_level"]
         result_status = fallback["status"]
-        details = fallback.get("details", "Scanned by local engine.")
+        # FIX: Standardize local engine string into a dictionary format
+        details = {"message": fallback.get("details", "Scanned by local engine."), "engine": "local"}
 
     if risk_level == "ERROR":
         raise HTTPException(status_code=400, detail=result_status)
@@ -112,5 +117,5 @@ def scan_suspicious_email(request: schemas.EmailScanRequest, db: Session = Depen
     return {
         "risk_level": analysis_result["risk_level"],
         "status": analysis_result["status"],
-        "details": analysis_result["details"]
+        "details": {"message": analysis_result["details"]} # FIX: Widen to dict formatting compatibility
     }
