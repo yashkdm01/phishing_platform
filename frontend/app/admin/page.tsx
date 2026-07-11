@@ -55,17 +55,24 @@ export default function AdminPage() {
     }
   };
 
-  const handleAdminLogin = async (e: React.FormEvent) => {
+ const handleAdminLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError("");
     setLoading(true);
+
     try {
       const res = await axios.post(`${process.env.NEXT_PUBLIC_API_URL}/auth/login`, {
         email,
         password
       });
+
+      // 1. Manually set the token
       localStorage.setItem("token", res.data.access_token);
-      validateToken(res.data.access_token);
+      
+      // 2. FORCE a re-check and state update
+      await validateToken(res.data.access_token);
+      
+      // 3. If validateToken passed, router will handle the UI
     } catch (err: any) {
       setAuthError("Access Denied: Invalid admin credentials.");
       setLoading(false);
