@@ -2,28 +2,20 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Shield, Globe, Mail, Activity, AlertOctagon, LogOut } from "lucide-react";
+import { Shield, Globe, Mail, Activity, AlertOctagon } from "lucide-react";
 import axios from "axios";
 
 export default function DashboardPage() {
   const router = useRouter();
   
-  // UI Tab State
   const [activeTab, setActiveTab] = useState<"url" | "email">("url");
   const [inputValue, setInputValue] = useState("");
   const [loading, setLoading] = useState(false);
-  
-  // Scan Result State
   const [scanResult, setScanResult] = useState<any>(null);
   
-  // LIVE TELEMETRY STATES (No more static values)
-  const [telemetry, setTelemetry] = useState({
-    totalScans: 0,
-    threatsBlocked: 0
-  });
+  const [telemetry, setTelemetry] = useState({ totalScans: 0, threatsBlocked: 0 });
   const [detectionLogs, setDetectionLogs] = useState<any[]>([]);
 
-  // Authenticate and load initial user history on page mount
   useEffect(() => {
     fetchUserHistory();
   }, []);
@@ -31,12 +23,12 @@ export default function DashboardPage() {
   const fetchUserHistory = async () => {
     const token = localStorage.getItem("token");
     if (!token) {
-      router.push("/login");
+      // THE FIX: Redirects to root ("/") instead of "/login" if root is your login page
+      window.location.href = "/";
       return;
     }
 
     try {
-      // Pull historical analytics from the backend database
       const res = await axios.get(`${process.env.NEXT_PUBLIC_API_URL}/analytics/history`, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -45,13 +37,10 @@ export default function DashboardPage() {
       const highRiskCount = res.data.high_risk_detected || 0;
       const totalCount = res.data.total_scans || history.length;
 
-      setTelemetry({
-        totalScans: totalCount,
-        threatsBlocked: highRiskCount
-      });
+      setTelemetry({ totalScans: totalCount, threatsBlocked: highRiskCount });
       setDetectionLogs(history);
     } catch (err) {
-      console.error("Failed to fetch operational telemetry", err);
+      console.error("Failed to fetch history", err);
     }
   };
 
@@ -71,37 +60,24 @@ export default function DashboardPage() {
         headers: { Authorization: `Bearer ${token}` }
       });
 
-      const data = res.data;
-      setScanResult(data);
-
-      // ==========================================
-      // LIVE TELEMETRY UPDATE ENGINE (THE FIX)
-      // ==========================================
-      const isThreat = data.risk_level === "HIGH" || data.risk_level === "MEDIUM";
+      setScanResult(res.data);
       
-      // 1. Increment counters instantly on screen
+      const isThreat = res.data.risk_level === "HIGH" || res.data.risk_level === "MEDIUM";
       setTelemetry(prev => ({
         totalScans: prev.totalScans + 1,
         threatsBlocked: isThreat ? prev.threatsBlocked + 1 : prev.threatsBlocked
       }));
 
-      // 2. Add the new scan item to the top of the side logs table dynamically
-      const newLogItem = {
+      setDetectionLogs(prev => [{
         id: Date.now(), 
-        content: activeTab === "url" ? data.url : (inputValue.substring(0, 30) + "..."),
-        risk_level: data.risk_level,
-        result: data.status
-      };
-      setDetectionLogs(prev => [newLogItem, ...prev]);
+        content: activeTab === "url" ? res.data.url : (inputValue.substring(0, 30) + "..."),
+        risk_level: res.data.risk_level,
+        result: res.data.status
+      }, ...prev]);
       
-      // Clear input field after successful scan
       setInputValue("");
-
     } catch (err: any) {
-      setScanResult({
-        risk_level: "ERROR",
-        status: err.response?.data?.detail || "Network request failed. Ensure backend is running."
-      });
+      setScanResult({ risk_level: "ERROR", status: "Request failed." });
     } finally {
       setLoading(false);
     }
@@ -109,12 +85,12 @@ export default function DashboardPage() {
 
   const handleLogout = () => {
     localStorage.removeItem("token");
-    router.push("/login");
+    // THE FIX: Explicitly redirect to root "/" to avoid 404s
+    window.location.href = "/";
   };
 
   return (
     <div className="flex-1 max-w-7xl mx-auto w-full p-6 mt-8 text-white">
-      {/* Header Area */}
       <div className="flex justify-between items-end mb-8 border-b border-white/10 pb-4">
         <div>
           <h1 className="text-3xl font-bold mb-2 flex items-center gap-3">
@@ -128,114 +104,44 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Main Operational Panel */}
         <div className="lg:col-span-2 space-y-6">
           <div className="bg-[#121214] border border-white/10 p-6 rounded-2xl shadow-xl">
-            {/* Tab Toggles */}
             <div className="flex gap-4 mb-6">
-              <button 
-                type="button"
-                onClick={() => { setActiveTab("url"); setScanResult(null); }}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${activeTab === "url" ? "bg-blue-600 text-white" : "text-gray-400 hover:bg-white/5"}`}
-              >
-                <Globe size={18} /> URL Scanner
-              </button>
-              <button 
-                type="button"
-                onClick={() => { setActiveTab("email"); setScanResult(null); }}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${activeTab === "email" ? "bg-blue-600 text-white" : "text-gray-400 hover:bg-white/5"}`}
-              >
-                <Mail size={18} /> Email Analyzer
-              </button>
+              <button onClick={() => setActiveTab("url")} className={`px-4 py-2 rounded-lg font-medium ${activeTab === "url" ? "bg-blue-600" : "bg-white/5"}`}>URL Scanner</button>
+              <button onClick={() => setActiveTab("email")} className={`px-4 py-2 rounded-lg font-medium ${activeTab === "email" ? "bg-blue-600" : "bg-white/5"}`}>Email Analyzer</button>
             </div>
-
-            {/* Form Input */}
             <form onSubmit={handleAnalyze} className="flex gap-3">
-              <input 
-                type={activeTab === "url" ? "url" : "text"}
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-                placeholder={activeTab === "url" ? "Paste suspicious threat link (https://...)" : "Paste full raw email message contents here..."}
-                required
-                className="flex-1 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 transition-colors"
-              />
-              <button 
-                type="submit" 
-                disabled={loading}
-                className="bg-white text-black hover:bg-gray-200 disabled:bg-gray-700 font-bold px-6 rounded-xl transition-colors text-sm shrink-0"
-              >
-                {loading ? "Analyzing..." : "Analyze"}
-              </button>
+              <input type="text" value={inputValue} onChange={(e) => setInputValue(e.target.value)} placeholder="Enter threat data..." required className="flex-1 bg-black/40 border border-white/10 rounded-xl px-4 py-3" />
+              <button type="submit" disabled={loading} className="bg-white text-black font-bold px-6 rounded-xl">{loading ? "Analyzing..." : "Analyze"}</button>
             </form>
           </div>
-
-          {/* Dynamic Result Output Screen */}
           {scanResult && (
-            <div className={`border p-6 rounded-2xl flex gap-4 animate-fadeIn transition-all duration-300 ${
-              scanResult.risk_level === 'HIGH' ? 'bg-red-500/10 border-red-500/30' : 
-              scanResult.risk_level === 'MEDIUM' ? 'bg-yellow-500/10 border-yellow-500/30' :
-              scanResult.risk_level === 'ERROR' ? 'bg-orange-500/10 border-orange-500/30' : 'bg-green-500/10 border-green-500/30'
-            }`}>
-              <div className="mt-1">
-                {scanResult.risk_level === 'HIGH' || scanResult.risk_level === 'ERROR' ? (
-                  <AlertOctagon className={scanResult.risk_level === 'HIGH' ? "text-red-500" : "text-orange-500"} size={28} />
-                ) : (
-                  <Shield className="text-green-500" size={28} />
-                )}
-              </div>
-              <div>
-                <h3 className="text-lg font-bold tracking-wide uppercase">
-                  {scanResult.risk_level === 'HIGH' ? "High Risk Detected" : 
-                   scanResult.risk_level === 'MEDIUM' ? "Medium Risk Detected" :
-                   scanResult.risk_level === 'ERROR' ? "System Error" : "Low Risk Detected"}
-                </h3>
-                <p className="text-sm mt-1 text-gray-300 font-medium">{scanResult.status}</p>
-                {scanResult.details && typeof scanResult.details === 'object' && (
-                  <div className="mt-4 p-3 bg-black/40 rounded-lg text-xs font-mono text-gray-400 max-h-[150px] overflow-y-auto">
-                    {JSON.stringify(scanResult.details, null, 2)}
-                  </div>
-                )}
-              </div>
+            <div className={`border p-6 rounded-2xl ${scanResult.risk_level === 'HIGH' ? 'bg-red-500/10' : 'bg-green-500/10'}`}>
+              <h3 className="font-bold uppercase">{scanResult.risk_level} Risk Detected</h3>
+              <p className="text-sm mt-1">{scanResult.status}</p>
             </div>
           )}
         </div>
 
-        {/* Live Operational Telemetry Side-Panel */}
-        <div className="space-y-6">
-          <div className="bg-[#121214] border border-white/10 p-6 rounded-2xl shadow-xl">
-            <h2 className="text-md font-bold mb-4 flex items-center gap-2 tracking-wider uppercase text-gray-400">
-              <Activity size={16} className="text-blue-500"/> System Telemetry
-            </h2>
-            
-            <div className="grid grid-cols-2 gap-4 mb-6">
-              <div className="bg-black/30 p-4 rounded-xl border border-white/5 text-center">
-                <span className="text-xs text-gray-500 block uppercase">Total Scans</span>
-                <span className="text-2xl font-bold mt-1 block">{telemetry.totalScans}</span>
-              </div>
-              <div className="bg-red-500/5 p-4 rounded-xl border border-red-500/10 text-center">
-                <span className="text-xs text-red-400/70 block uppercase">Threats Blocked</span>
-                <span className="text-2xl font-bold text-red-500 mt-1 block">{telemetry.threatsBlocked}</span>
-              </div>
+        <div className="bg-[#121214] border border-white/10 p-6 rounded-2xl">
+          <h2 className="text-md font-bold mb-4 uppercase text-gray-400">System Telemetry</h2>
+          <div className="grid grid-cols-2 gap-4 mb-6">
+            <div className="bg-black/30 p-4 rounded-xl text-center">
+              <span className="text-2xl font-bold">{telemetry.totalScans}</span>
+              <p className="text-xs text-gray-500">Scans</p>
             </div>
-
-            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">Detection Logs</h3>
-            <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1 custom-scrollbar">
-              {detectionLogs.length > 0 ? (
-                detectionLogs.map((log) => (
-                  <div key={log.id} className="bg-black/20 border border-white/5 p-3 rounded-lg flex justify-between items-center text-xs">
-                    <span className="truncate max-w-[140px] text-gray-400 font-medium">{log.content}</span>
-                    <span className={`px-2 py-0.5 rounded font-bold ${
-                      log.risk_level === 'HIGH' ? 'bg-red-500/20 text-red-500' : 
-                      log.risk_level === 'MEDIUM' ? 'bg-yellow-500/20 text-yellow-500' : 'bg-green-500/20 text-green-500'
-                    }`}>
-                      {log.risk_level}
-                    </span>
-                  </div>
-                ))
-              ) : (
-                <p className="text-xs text-gray-600 py-4 text-center">No structural logs generated.</p>
-              )}
+            <div className="bg-red-500/5 p-4 rounded-xl text-center">
+              <span className="text-2xl font-bold text-red-500">{telemetry.threatsBlocked}</span>
+              <p className="text-xs text-gray-500">Threats</p>
             </div>
+          </div>
+          <div className="space-y-2 max-h-[260px] overflow-y-auto">
+            {detectionLogs.map((log) => (
+              <div key={log.id} className="bg-black/20 p-3 rounded-lg flex justify-between text-xs">
+                <span className="truncate">{log.content}</span>
+                <span className={log.risk_level === 'HIGH' ? 'text-red-500' : 'text-green-500'}>{log.risk_level}</span>
+              </div>
+            ))}
           </div>
         </div>
       </div>
